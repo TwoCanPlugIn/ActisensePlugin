@@ -47,9 +47,6 @@ SET(SRC_ACTISENSE
             src/actisense_ngt1.cpp
             inc/actisense_ngt1.h
             inc/version.h
-            img/actisense_white.png
-            img/actisense_logo_32.png
-            img/actisense_logo_16.png
  	)
 
 ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_ACTISENSE} )
