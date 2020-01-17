@@ -1,0 +1,7 @@
+src/twocanerror.cpp
+src/twocanutils.cpp
+src/actisense_plugin.cpp
+src/actisense_device.cpp
+src/actisense_settings.cpp
+src/actisense_ebl.cpp
+src/actisense_ngt1.cpp
