@@ -54,7 +54,7 @@ ActisenseDevice::ActisenseDevice(wxEvtHandler *handler) : wxThread(wxTHREAD_DETA
 	// Until engineInstance > 0 then assume a single engined vessel
 	IsMultiEngineVessel = FALSE;
 		
-	// Any raw logging ?
+	// BUG BUG - Need to finalize use case and reflect in the preferences dialog
 	// BUG BUG - Perform logging in the NGT-1 driver
 	if (logLevel > FLAGS_LOG_NONE) {
 		wxDateTime tm = wxDateTime::Now();
@@ -80,28 +80,24 @@ ActisenseDevice::~ActisenseDevice(void) {
 // Init, Load the Actisense NGT-1 adapter driver or the Actisense EBL Log File Reader
 int ActisenseDevice::Init(wxString driverPath) {
 	int returnCode;
-	
+
 	driverName = driverPath;
-	
-	if  (driverName.CmpNoCase(CONST_LOG_READER) == 0) {
+
+	if (driverName.CmpNoCase(CONST_LOG_READER) == 0) {
 		// Load the Actisense EBL log file reader
 		deviceInterface = new ActisenseEBL(canQueue);
 		returnCode = deviceInterface->Open(CONST_LOGFILE_NAME);
 	}
-	if  (driverName.CmpNoCase(CONST_NGT_READER) == 0) {
+	if (driverName.CmpNoCase(CONST_NGT_READER) == 0) {
 		// Load the  Actisense NGT-1 interface
 		deviceInterface = new ActisenseNGT1(canQueue);
 		// By default, adapterPortName is empty, therefore the NGT-1 interface
-		// will automagically determine the correct port. If not empty, ot overrides the automatic port selection
-		returnCode = deviceInterface->Open(adapterPortName); 
+		// will automagically determine the correct port. If not empty, it overrides the automatic port selection
+		returnCode = deviceInterface->Open(adapterPortName);
 	}
-	if (returnCode != TWOCAN_RESULT_SUCCESS) {
-		wxLogError(_T("Actisense Device, Error loading Interface %s: %lu"), driverName, returnCode);
-	}
-	else {
-		wxLogMessage(_T("Actisense Device, Loaded Interface %s"),driverName);
-	}
+	
 	return returnCode;
+		
 }
 
 // DeInit
@@ -111,21 +107,21 @@ int ActisenseDevice::DeInit() {
 }
 
 // Entry, the method that is executed upon thread start
-// Merely loops continuously waiting for frames to be received by the NGT-1 Adapteror EBL Log Reader
+// Merely loops continuously waiting for frames to be received by the NGT-1 Adapter or EBL Log Reader
 wxThread::ExitCode ActisenseDevice::Entry() {
 	return (wxThread::ExitCode)ReadActisenseDriver();
 }
 
-// OnExit, called when thread->delete is invoked, and entry returns
+// OnExit, called when the plugin invokes thread->delete and Entry returns
 void ActisenseDevice::OnExit() {
-	// BUG BUG Should this be moved to DeInit ??
 	int returnCode;
-		
+	
+	// Terminate the interface thread
 	wxThread::ExitCode threadExitCode;
 	returnCode = deviceInterface->Delete(&threadExitCode,wxTHREAD_WAIT_BLOCK);
 	returnCode = deviceInterface->Close();
 	
-	wxLogMessage(_T("Actisense Device, Unloaded driver: %lu"), returnCode);
+	wxLogMessage(_T("Actisense Device, Terminated interface (%lu)"), returnCode);
 
 	eventHandlerAddress = NULL;
 
@@ -157,25 +153,29 @@ int ActisenseDevice::ReadActisenseDriver(void) {
 	wxMessageQueueError queueError;
 	std::vector<byte> receivedFrame;
 			
-	// Start the Device's Read thread
+	// Start the interface's Read thread
 	deviceInterface->Run();
-	wxLogMessage(_T("Actisense Device, Started Interface Thread"));
+	wxLogMessage(_T("Actisense Device, Started interface thread"));
 	
-	
-	while (!TestDestroy())	{
+	while (!TestDestroy()) {
 		
 		// Wait for a CAN Frame
-		queueError = canQueue->Receive(receivedFrame);
+		queueError = canQueue->ReceiveTimeout(100,receivedFrame);
 		
-		if (queueError == wxMSGQUEUE_NO_ERROR) {
-							
-			ParseMessage(receivedFrame);
-		
-		} // end if Queue Error
+		switch (queueError) {
+			case wxMSGQUEUE_NO_ERROR:
+				ParseMessage(receivedFrame);
+				break;
+			case wxMSGQUEUE_TIMEOUT:
+				break;
+			case wxMSGQUEUE_MISC_ERROR:
+				// BUG BUG, Should we log this ??
+				break;
+		}
 
 	} // end while
 
-	wxLogMessage(_T("Actisense Device, Read Thread Exiting"));
+	wxLogMessage(_T("Actisense Device, Read thread exiting"));
 
 	return TWOCAN_RESULT_SUCCESS;	
 }
@@ -230,7 +230,7 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 	else {
 		// No checksum and no overall length. Alter indexes as appropriate.
 		// Construct the CAN Header
-		header.pgn = receivedFrame.at(2) + (receivedFrame.at(3)<< 8) + (receivedFrame.at(4) << 16);
+		header.pgn = receivedFrame.at(2) + (receivedFrame.at(3) << 8) + (receivedFrame.at(4) << 16);
 		header.destination = receivedFrame.at(5);
 		header.source = receivedFrame.at(6);
 		header.priority = receivedFrame.at(1);
@@ -269,7 +269,7 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 					int returnCode;
 					returnCode = SendAddressClaim(networkAddress);
 					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage("Actisense Device, Error Sending Address Claim: %lu", returnCode);
+						wxLogMessage(_T("Actisense Device, Error Sending Address Claim (%lu)"), returnCode);
 					}
 				}
 				break;
@@ -279,7 +279,7 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 					int returnCode;
 					returnCode = SendSupportedPGN();
 					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage("Actisense Device, Error Sending Supported PGN: %lu", returnCode);
+						wxLogMessage(_T("Actisense Device, Error Sending Supported PGN (%lu)"), returnCode);
 					}
 				}
 				break;
@@ -293,7 +293,7 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 					int returnCode;
 					returnCode = SendProductInformation();
 					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage("Actisense Device, Error Sending Product Information: %lu", returnCode);
+						wxLogMessage(_T("Actisense Device, Error Sending Product Information (%lu)"), returnCode);
 					}
 				}
 				break;
@@ -349,10 +349,10 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 				int returnCode;
 				returnCode = SendAddressClaim(networkAddress);
 				if (returnCode == TWOCAN_RESULT_SUCCESS) {
-					wxLogMessage(_T("Actisense Device, Reclaimed network address: %lu"), networkAddress);
+					wxLogMessage(_T("Actisense Device, Reclaimed network address %lu"), networkAddress);
 				}
 				else {
-					wxLogMessage("Actisense Device, Error reclaming network address %lu: %lu", networkAddress, returnCode);
+					wxLogMessage(_T("Actisense Device, Error reclaming network address %lu (%lu)"), networkAddress, returnCode);
 				}
 			}
 			// Our uniqueId is larger (or equal), so increment our network address and see if we can claim the new address
@@ -362,10 +362,10 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 					int returnCode;
 					returnCode = SendAddressClaim(networkAddress);
 					if (returnCode == TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Claimed network address: %lu"), networkAddress);
+						wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
 					}
 					else {
-						wxLogMessage("Actisense Device, Error claiming network address %lu: %lu", networkAddress, returnCode);
+						wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
 					}
 				}
 				else {
@@ -377,10 +377,10 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 					int returnCode;
 					returnCode = SendAddressClaim(CONST_NULL_ADDRESS);
 					if (returnCode == TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Claimed network address: %lu"), networkAddress);
+						wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
 					}
 					else {
-						wxLogMessage("Actisense Device, Error claiming network address %lu: %lu", networkAddress, returnCode);
+						wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
 					}
 				}
 			}
@@ -811,7 +811,7 @@ bool ActisenseDevice::DecodePGN126993(const int source, std::vector<byte> payloa
 
 		// BUG BUG Remove for production once this has been tested
 #ifndef NDEBUG
-		wxLogMessage(wxString::Format("Actisense Heartbeat, Source: %d, Time: %d, Count: %d, CAN 1: %d, CAN 2: %d", source, timeOffset, counter, class1CanState, class2CanState));
+		wxLogMessage(_T("Actisense Heartbeat, Source: %d, Time: %d, Count: %d, CAN 1: %d, CAN 2: %d"), source, timeOffset, counter, class1CanState, class2CanState);
 #endif
 		
 		return TRUE;
@@ -2144,10 +2144,10 @@ bool ActisenseDevice::DecodePGN129040(std::vector<byte> payload, std::vector<wxS
 		AISInsertInteger(binaryData, 139, 4, regionalReservedB);
 		AISInsertString(binaryData, 143, 120, shipName);
 		AISInsertInteger(binaryData, 263, 8, shipType);
-		AISInsertInteger(binaryData, 271, 9, refBow);
-		AISInsertInteger(binaryData, 280, 9, shipLength - refBow);
-		AISInsertInteger(binaryData, 289, 6, refStarboard);
-		AISInsertInteger(binaryData, 295, 6, shipBeam - refStarboard);
+		AISInsertInteger(binaryData, 271, 9, refBow / 10);
+		AISInsertInteger(binaryData, 280, 9, (shipLength / 10) - (refBow / 10));
+		AISInsertInteger(binaryData, 289, 6, refStarboard / 10);
+		AISInsertInteger(binaryData, 295, 6, (shipBeam / 10) - (refStarboard / 10));
 		AISInsertInteger(binaryData, 301, 4, gnssType);
 		AISInsertInteger(binaryData, 305, 1, raimFlag);
 		AISInsertInteger(binaryData, 306, 1, dteFlag);
@@ -2158,7 +2158,7 @@ bool ActisenseDevice::DecodePGN129040(std::vector<byte> payload, std::vector<wxS
 		
 		// Send the VDM message, Note no fillbits
 		// One day I'll remember why I chose 28 as the length of a multisentence VDM message
-		// BUG BUG Or just send two messages, 26bytes long
+		// BUG BUG Or just send two messages, 26 bytes long
 		int numberOfVDMMessages = ((int)encodedVDMMessage.Length() / 28) + ((encodedVDMMessage.Length() % 28) >  0 ? 1 : 0);
 		
 		for (int i = 0; i < numberOfVDMMessages; i++) {
@@ -2281,10 +2281,10 @@ bool ActisenseDevice::DecodePGN129041(std::vector<byte> payload, std::vector<wxS
 		AISInsertInteger(binaryData, 163, 1, positionAccuracy);
 		AISInsertInteger(binaryData, 164, 28, ((longitudeDegrees * 60) + longitudeMinutes) * 10000);
 		AISInsertInteger(binaryData, 192, 27, ((latitudeDegrees * 60) + latitudeMinutes) * 10000);
-		AISInsertInteger(binaryData, 219, 9, refBow);
-		AISInsertInteger(binaryData, 228, 9, shipLength - refBow);
-		AISInsertInteger(binaryData, 237, 6, refStarboard);
-		AISInsertInteger(binaryData, 243, 6, shipBeam - refStarboard);
+		AISInsertInteger(binaryData, 219, 9, refBow / 10);
+		AISInsertInteger(binaryData, 228, 9, (shipLength / 10) - (refBow / 10));
+		AISInsertInteger(binaryData, 237, 6, refStarboard / 10);
+		AISInsertInteger(binaryData, 243, 6, (shipBeam / 10) - (refStarboard / 10));
 		AISInsertInteger(binaryData, 249, 4, gnssType);
 		AISInsertInteger(binaryData, 253, 6, timeStamp);
 		AISInsertInteger(binaryData, 259, 1, offPositionFlag);

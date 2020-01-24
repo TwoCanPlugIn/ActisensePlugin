@@ -63,7 +63,7 @@ int ActisenseEBL::Open(const wxString& fileName) {
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_FILE_NOT_FOUND);
 	}
 	else {
-		wxLogMessage(_T("Actisense EBL, successfully opened file: %s"), logFileName.c_str());
+		wxLogMessage(_T("Actisense EBL, Successfully opened file: %s"), logFileName.c_str());
 		return TWOCAN_RESULT_SUCCESS;
 	}
 }
@@ -184,7 +184,7 @@ void ActisenseEBL::Read() {
 						}
 					}
 					
-					wxThread::Sleep(20);
+					wxThread::Sleep(5);
 					
 					// Reset everything for next message
 					assemblyBuffer.clear();

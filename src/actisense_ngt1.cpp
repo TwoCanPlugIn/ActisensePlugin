@@ -65,20 +65,20 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 		result = ConfigurePort();
 	}
 	else {
-		wcscpy(portName,optionalPortName.wchar_str());
+		portName = optionalPortName;
 		result = TWOCAN_RESULT_SUCCESS;
 	}
 	
 	if (result != TWOCAN_RESULT_SUCCESS) {
-		wxLogMessage(_T("Actisense NGT-1, Error determining port %lu"),result);
+		wxLogMessage(_T("Actisense NGT-1, Error detecting port (%lu)"), result);
 		return result;
 	}
 	
-	wxLogMessage(_T("Actisense NGT-1, attempting to open %s"),portName);
+	wxLogMessage(_T("Actisense NGT-1, Attempting to open %s"), portName);
 			
 #ifdef __LINUX__
 	// Open the serial device
-	serialPortHandle = open(portName, O_RDWR | O_NOCTTY | O_NONBLOCK);
+	serialPortHandle = open(portName.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
 	
 	if (serialPortHandle == -1) {
 		return 	SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER, TWOCAN_ERROR_CREATE_SERIALPORT);
@@ -86,7 +86,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
     
     // Ensure it is a tty device
     if (!isatty(serialPortHandle)) { 
-		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
+		return SET_ERROR(TWOCAN_RESULT_FATAL , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
     }
     
     // Configure the serial port settings
@@ -131,10 +131,10 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 
 #ifdef __WXMSW__
 
-	serialPortHandle = CreateFile(portName, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+	serialPortHandle = CreateFile(portName.wc_str(), GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	
 	if (serialPortHandle == INVALID_HANDLE_VALUE) {
-		wxLogMessage(_T("Actisense NGT-1, Error create file (%d)"),GetLastError());
+		wxLogMessage(_T("Actisense NGT-1, Error opening port %s (%lu)"), portName, GetLastError());
 		return 	SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER, TWOCAN_ERROR_CREATE_SERIALPORT);
 	}
 	
@@ -143,7 +143,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	serialPortSettings.DCBlength = sizeof(serialPortSettings);
 
 	if (!GetCommState(serialPortHandle, &serialPortSettings)) {
-		wxLogMessage(_T("Actisense NGT-1, Error GetCommState (%d)"),GetLastError());
+		wxLogMessage(_T("Actisense NGT-1, Error GetCommState (%lu)"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
@@ -155,19 +155,19 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	serialPortSettings.Parity = 0; //0 is no parity;
 
 	if (!SetCommState(serialPortHandle, &serialPortSettings)) {
-		wxLogMessage(_T("Actisense NGT-1, Error SetCommState (%d)"),GetLastError());
+		wxLogMessage(_T("Actisense NGT-1, Error SetCommState (%lu)"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	
 	COMMTIMEOUTS serialPortTimeouts = { 0 };
-	serialPortTimeouts.ReadIntervalTimeout = 10;
+	serialPortTimeouts.ReadIntervalTimeout = MAXDWORD; //set to MAXDWORD for non-blocking
 	serialPortTimeouts.ReadTotalTimeoutConstant = 0;
 	serialPortTimeouts.ReadTotalTimeoutMultiplier = 0;
 	serialPortTimeouts.WriteTotalTimeoutConstant = 10;
 	serialPortTimeouts.WriteTotalTimeoutMultiplier = 0;
 
 	if (!SetCommTimeouts(serialPortHandle, &serialPortTimeouts)) {
-		wxLogMessage(_T("Actisense NGT-1, Error SetCommTimeOuts (%d)"),GetLastError());
+		wxLogMessage(_T("Actisense NGT-1, Error SetCommTimeOuts (%lu)"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	
@@ -176,6 +176,8 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 #ifdef __WXOSX__
 	// ToDo
 #endif
+
+	wxLogMessage(_T("Actisense NGT-1, Successfully opened %s"), portName);
 
 	// Send the NGT-1 Initialization Sequence
 	return ConfigureAdapter();
@@ -197,17 +199,23 @@ int ActisenseNGT1::Close(void) {
 #ifdef __WXOSX__
 	// ToDo
 #endif
-	wxLogMessage(_T("Actisense NGT-1, Closed Serial ports"));
+	wxLogMessage(_T("Actisense NGT-1, Closed serial port"));
 	return TWOCAN_RESULT_SUCCESS;
 }
 
+// Reads data from the port and assembles into Actisense messages
 void ActisenseNGT1::Read() {
 	// used to construct valid Actisense messages
 	std::vector<byte> assemblyBuffer;
-	// read 1K at a time ??
-	std::vector<byte> readBuffer(1024,0);
+	// read 128 at a time ??
+	std::vector<byte> readBuffer(128,0);
 	// used to iterate through the readBuffer
+#ifdef __LINUX__
 	int bytesRead = 0;
+#endif
+#ifdef __WXMSW__
+	DWORD bytesRead = 0;
+#endif
 	// if we've found an ASCII Control Char DLE or ESC
 	bool isEscaped = false;
 	// if we've found an ASCII Control Char STX (preceded by a DLE)
@@ -217,146 +225,143 @@ void ActisenseNGT1::Read() {
 	// or a BEMEND (preceded by an ESC)
 	bool msgComplete = false;
 	
-	threadIsAlive = true;;
-		
-	while (threadIsAlive) {
+	while (!TestDestroy()) {
 	
 #ifdef __LINUX__
 		bytesRead = read(serialPortHandle, (char *) &readBuffer[0], readBuffer.size());
 	#endif
 	
 #ifdef __WXMSW__
-		ReadFile(serialPortHandle, readBuffer.data(), readBuffer.size(), (LPDWORD)bytesRead, NULL);
+		if (ReadFile(serialPortHandle, readBuffer.data(), readBuffer.size(), &bytesRead, NULL)) {
 #endif
 
 #ifdef __WXOSX__
-	// ToDo
+			// ToDo
 #endif
 
-		if (TestDestroy()) {
-			threadIsAlive = false;
-			break;
-		}
-		
-		if (bytesRead > 0) {
-								
-			for (int i=0; i < bytesRead; i++) {
-				
-				unsigned char ch = readBuffer.at(i);
-				
-				// if last character was DLE or ESC
-				if (isEscaped) {
-					isEscaped = false;
+			if (bytesRead > 0) {
 
-					// Message Start
-					if ((ch == STX) && (!msgStart)) {
-						msgStart = true;
-						msgComplete = false;
-						assemblyBuffer.clear();
-					}
+				for (int i = 0; i < (int)bytesRead; i++) {
 
-					// Message End
-					else if ((ch == ETX) && (msgStart)) {
-						msgComplete = true;
-						msgStart = false;
-					}
+					unsigned char ch = readBuffer.at(i);
 
-					// Actisense Binary Encoded Message Start
-					else if ((ch == BEMSTART) && (!msgStart)) {
-						msgStart = true;
-						msgComplete = false;
-						assemblyBuffer.clear();
-					}
+					// if last character was DLE or ESC
+					if (isEscaped) {
+						isEscaped = false;
 
-					// Actisense Binary Encoded Message End
-					else if ((ch == BEMEND) && (msgStart)) {
-						msgComplete = true;
-						msgStart = false;
-					}
+						// Message Start
+						if ((ch == STX) && (!msgStart)) {
+							msgStart = true;
+							msgComplete = false;
+							assemblyBuffer.clear();
+						}
 
-					// Escaped DLE
-					else if ((ch == DLE) && (msgStart)) {
-						assemblyBuffer.push_back(ch);
-					}
+						// Message End
+						else if ((ch == ETX) && (msgStart)) {
+							msgComplete = true;
+							msgStart = false;
+						}
 
-					// Escaped ESC
-					else if ((ch == ESC) && (msgStart)) {
-						assemblyBuffer.push_back(ch);
-					}
+						// Actisense Binary Encoded Message Start
+						else if ((ch == BEMSTART) && (!msgStart)) {
+							msgStart = true;
+							msgComplete = false;
+							assemblyBuffer.clear();
+						}
 
-					else {
-						// Can't have an escaped normal char
-						msgComplete = false;
-						msgStart = false;
-						assemblyBuffer.clear();
-					}
-				}
-				// Previous character was not a DLE or ESC
-				else {
-					if ((ch == DLE) || (ch == ESC)) {
-						isEscaped = true;
-					}
-					else if (msgStart) {
-						// a normal character
-						assemblyBuffer.push_back(ch);
-					}
-				}
-			
-				if (msgComplete) {
-					// we have a complete frame, process it
-					
-					// the checksum character at the end of the message
-					// ensures that the sum of all characters modulo 256 equals 0
-					int checksum = 0;
-					if (actisenseChecksum) {
-						for (auto it: assemblyBuffer) {
-							checksum += it;
+						// Actisense Binary Encoded Message End
+						else if ((ch == BEMEND) && (msgStart)) {
+							msgComplete = true;
+							msgStart = false;
+						}
+
+						// Escaped DLE
+						else if ((ch == DLE) && (msgStart)) {
+							assemblyBuffer.push_back(ch);
+						}
+
+						// Escaped ESC
+						else if ((ch == ESC) && (msgStart)) {
+							assemblyBuffer.push_back(ch);
+						}
+
+						else {
+							// Can't have an escaped normal char
+							msgComplete = false;
+							msgStart = false;
+							assemblyBuffer.clear();
 						}
 					}
+					// Previous character was not a DLE or ESC
 					else {
-						// Don't perform the checksum calculation, so just "dupe" it
-						checksum = 256;
-					}
-					
-					if ((checksum % 256) == 0) {
-						if (assemblyBuffer.at(0) == N2K_RX_CMD) {
-							// we have a received a valid frame so send it
-							deviceQueue->Post(assemblyBuffer);																					
+						if ((ch == DLE) || (ch == ESC)) {
+							isEscaped = true;
+						}
+						else if (msgStart) {
+							// a normal character
+							assemblyBuffer.push_back(ch);
 						}
 					}
-					
-										
-					// Reset everything for next message
-					assemblyBuffer.clear();
-					msgStart = false;
-					msgComplete = false;
-					isEscaped = false;
+
+					if (msgComplete) {
+						// we have a complete frame, process it
+
+						// the checksum character at the end of the message
+						// ensures that the sum of all characters modulo 256 equals 0
+						int checksum = 0;
+						if (actisenseChecksum) {
+							for (auto it : assemblyBuffer) {
+								checksum += it;
+							}
+						}
+						else {
+							// Don't perform the checksum calculation, so just "dupe" it
+							checksum = 256;
+						}
+
+						if ((checksum % 256) == 0) {
+							if (assemblyBuffer.at(0) == N2K_RX_CMD) {
+								// we have received a valid frame so send it
+								deviceQueue->Post(assemblyBuffer);
+							}
+						}
+
+
+						// Reset everything for next message
+						assemblyBuffer.clear();
+						msgStart = false;
+						msgComplete = false;
+						isEscaped = false;
+
+					}	// end if msgComplete
+
+				} // end for
+
+			} // end if bytes read > 0
+
+#ifdef __WXMSW__
+		} // end if ReadFile
+#endif
 							
-				}	// end if msgComplete
-			
-			} // end for
-				
-		} // end if bytes read > 0
-							
-	} // end while threadIsAlive
+	} // end while 
 		
 }
 
-// Write not yet implemented
+// BUG BUG Write not yet implemented
 int ActisenseNGT1::Write(const unsigned int canId, const unsigned char payloadLength, const unsigned char *payload) {
 	return TWOCAN_RESULT_SUCCESS;
 }
 
 // Entry, the method that is executed upon thread start
 wxThread::ExitCode ActisenseNGT1::Entry() {
-	// Merely loops continuously waiting for frames to be received by the CAN Adapter
+	// Merely loops continuously waiting for frames to be received by the Actisense adapter
 	Read();
 	return (wxThread::ExitCode)TWOCAN_RESULT_SUCCESS;
 }
 
 // OnExit, called when thread is being destroyed
 void ActisenseNGT1::OnExit() {
-	wxLogMessage(_T("Actisense NGT-1, Thread OnExit"));
+	wxLogMessage(_T("Actisense NGT-1, Read thread exiting."));
 	// Nothing to do ??
 }
 
@@ -374,7 +379,7 @@ int ActisenseNGT1::ConfigureAdapter(void) {
 	
 	if (bytesWritten == 0) {
 		int err = GetLastError();
-		wxLogMessage(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence"));
+		wxLogMessage(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence: %d"),err);
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
@@ -394,6 +399,7 @@ int ActisenseNGT1::ConfigureAdapter(void) {
 #ifdef __WXOSX__
 	// ToDo 
 #endif
+
 	wxLogMessage(_T("Actisense NGT-1, Sent NGT-1 Reset Sequence"));
 	return TWOCAN_RESULT_SUCCESS;
 }
@@ -576,7 +582,7 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 
 
 // Get the associated COM port name
-int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, WCHAR *portName) {
+int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString portName) {
 	HKEY registryKey;
 	DWORD result;
 
@@ -655,7 +661,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, WCHAR *por
 					
 					// Save the serial port name
 					// Append the ':'
-					wsprintf(portName, L"%s:",keyValue);
+					portName = wxString::Format(_T("%s:"),keyValue);
 					wxLogMessage(_T("Actisense NGT-1, COM Port: %s"), portName);
 					
 					foundKey = TRUE;
@@ -680,7 +686,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, WCHAR *por
 
 // Retrieve the serial port settings from the registry
 // Unused as we use the factory default NGT-1 settings, 115200 baud, 8 data, 1 stop, no parity
-int ActisenseNGT1::GetPortSettings(WCHAR *portName,int *baudRate, int *dataBits, int *stopBits, int *parity) {
+int ActisenseNGT1::GetPortSettings(wxString portName,int *baudRate, int *dataBits, int *stopBits, int *parity) {
 	HKEY registryKey;
 	DWORD result;
 
@@ -694,7 +700,7 @@ int ActisenseNGT1::GetPortSettings(WCHAR *portName,int *baudRate, int *dataBits,
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_CONFIGURE_PORT);
 	}
 
-	result = RegGetValue(registryKey, L"Ports", portName, RRF_RT_ANY, &keyType, keyValue, &keyLength);
+	result = RegGetValue(registryKey, L"Ports", portName.wc_str(), RRF_RT_ANY, &keyType, keyValue, &keyLength);
 
 	if (result != ERROR_SUCCESS) {
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_CONFIGURE_PORT);

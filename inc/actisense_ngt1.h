@@ -58,9 +58,7 @@ protected:
 	virtual void OnExit();
 
 private:
-	// Detect when thread is killed
-	int threadIsAlive;
-	WCHAR portName[6];
+	wxString portName;
 	int ConfigureAdapter(void);
 	int ConfigurePort(void);
 	
@@ -72,8 +70,8 @@ private:
 #ifdef __WXMSW__
 	HANDLE serialPortHandle;
 	int FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actisenseSerialNumber);
-	int GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, WCHAR *portName);
-	int GetPortSettings(WCHAR *portName,int *baudRate, int *dataBits, int *stopBits, int *parity);
+	int GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString portName);
+	int GetPortSettings(wxString portName,int *baudRate, int *dataBits, int *stopBits, int *parity);
 #endif
 
 };

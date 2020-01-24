@@ -117,12 +117,12 @@ bool Actisense::DeInit(void) {
 		}
 	}
 	
-	// Terminate the Actisense Device Thread, but only if we have a valid driver selected !
-	if (actisenseDevice != nullptr) {
-		if (actisenseDevice->IsRunning()) {
-			StopDevice();
-		}
-	}
+	// Terminate the Actisense Device Thread
+	StopDevice();
+
+	// BUG BUG Should use a semaphore to wait for the device & interface threads to exit
+	wxThread::Sleep(CONST_ONE_SECOND);
+	
 	// Do not need to explicitly call the destructor for detached threads
 	return TRUE;
 }
@@ -220,7 +220,7 @@ void Actisense::ShowPreferencesDialog(wxWindow* parent) {
 			StartDevice();
 		}
 		else {
-			wxLogError(_T("Actisense Plugin, Load Settings Error. Device not restarted "));
+			wxLogError(_T("Actisense Plugin, Error loading settings. Device not restarted "));
 		}
 	}
 	delete settingsDialog;
@@ -284,10 +284,10 @@ void Actisense::StopDevice(void) {
 		if (actisenseDevice->IsRunning()) {
 			threadError = actisenseDevice->Delete(&threadExitCode, wxTHREAD_WAIT_DEFAULT);
 			if (threadError == wxTHREAD_NO_ERROR) {
-				wxLogMessage(_T("Actisense Plugin, Device Thread Delete Result: %d"), threadExitCode);
+				wxLogMessage(_T("Actisense Plugin, Terminated device thread (%lu)"), threadExitCode);
 			}
 			else {
-				wxLogMessage(_T("Actisense Plugin, Device Thread Delete Error: %d"), threadError);
+				wxLogMessage(_T("Actisense Plugin, Error terminating device thread (%lu)"), threadError);
 			}
 		}
 	}
@@ -297,17 +297,17 @@ void Actisense::StartDevice(void) {
 	actisenseDevice = new ActisenseDevice(this);
 	if (!canAdapter.empty()) {
 		int returnCode = actisenseDevice->Init(canAdapter);
-		if (returnCode != TWOCAN_RESULT_SUCCESS) {
-			wxLogError(_T("Actisense Plugin,  Device Initialize Error: %lu"), returnCode);
+		if ((returnCode & TWOCAN_RESULT_FATAL) == TWOCAN_RESULT_FATAL) {
+			wxLogError(_T("Actisense Plugin,  Error initializing device (%lu)"), returnCode);
 		}
 		else {
-			wxLogMessage(_T("Actisense Plugin, Device Initialized"));
+			wxLogMessage(_T("Actisense Plugin, Device initialized"));
 			int threadResult = actisenseDevice->Run();
-			if (threadResult == wxTHREAD_NO_ERROR)    {
-				wxLogMessage(_T("Actisense Plugin, Device Thread Created"));
+			if (threadResult == wxTHREAD_NO_ERROR) {
+				wxLogMessage(_T("Actisense Plugin, Successfully created device thread"));
 			}
 			else {
-				wxLogError(_T("Actisense Plugin, Device Thread Creation Error: %d"), threadResult);
+				wxLogError(_T("Actisense Plugin, Error creating device thread (%lu)"), threadResult);
 			}
 		}
 	}
