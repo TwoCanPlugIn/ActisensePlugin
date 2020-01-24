@@ -64,7 +64,7 @@ List of supported NMEA 2000 Parameter Group Numbers (PGN)<sup>1</sup>
 Obtaining the source code
 -------------------------
 
-git clone https://github.com/twocanplugin/actisense.git
+git clone https://github.com/twocanplugin/actisenseplugin.git
 
 Build Environment
 -----------------
