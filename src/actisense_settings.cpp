@@ -264,6 +264,7 @@ void ActisenseSettings::OnRightCick( wxMouseEvent& event) {
 	for (unsigned int i = 0; i < chkListPGN->GetCount(); i++) {
 		chkListPGN->Check(i, togglePGN);
 	}
+	this->settingsDirty = TRUE;
 }
 
 void ActisenseSettings::OnOK(wxCommandEvent &event) {
