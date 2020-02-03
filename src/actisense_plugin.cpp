@@ -30,6 +30,7 @@
 
 #include "actisense_plugin.h"
 #include "actisense_icons.h"
+#include "twocanautopilotsettings.h"
 
 // Globally accessible variables used by the plugin, device and the settings dialog.
 wxFileConfig *configSettings;
@@ -67,7 +68,6 @@ Actisense::Actisense(void *ppimgr) : opencpn_plugin_18(ppimgr), wxEvtHandler() {
 	Connect(wxEVT_SENTENCE_RECEIVED_EVENT, wxCommandEventHandler(Actisense::OnSentenceReceived));
 	// Load the plugin bitmaps/icons 
 	initialize_images();
-
 }
 
 Actisense::~Actisense(void) {
@@ -79,7 +79,7 @@ int Actisense::Init(void) {
 	// Perform any necessary initializations here
 	
 	// Maintain a reference to the OpenCPN window
-	// BUG BUG Why, it's not used by anything at the moment ??
+	// Will use as the parent for the Autopilot Dialog
 	parentWindow = GetOCPNCanvasWindow();
 
 	// Maintain a reference to the OpenCPN configuration object 
@@ -100,10 +100,10 @@ int Actisense::Init(void) {
 		// Start the Actisense Device which will in turn load either the NGT-1 device or the EBL Log File device
 		StartDevice();
 	}
-
+	
 	// Notify OpenCPN what events we want to receive callbacks for
 	// WANTS_NMEA_SENTENCES could be used for future versions where we might convert NMEA 0183 sentences to NMEA 2000
-	return (WANTS_PREFERENCES | WANTS_CONFIG);
+	return (WANTS_PREFERENCES | WANTS_CONFIG );
 }
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
@@ -120,10 +120,6 @@ bool Actisense::DeInit(void) {
 	// Terminate the Actisense Device Thread
 	StopDevice();
 
-	// BUG BUG Should use a semaphore to wait for the device & interface threads to exit
-	wxThread::Sleep(CONST_ONE_SECOND);
-	
-	// Do not need to explicitly call the destructor for detached threads
 	return TRUE;
 }
 
@@ -212,9 +208,6 @@ void Actisense::ShowPreferencesDialog(wxWindow* parent) {
 		// Terminate the Actisense Device Thread, but only if we have a valid driver selected !
 		StopDevice();
 		
-		// Wait a little for the threads to complete
-		wxThread::Sleep(CONST_ONE_SECOND);
-
 		if (LoadConfiguration()) {
 			// Restart the Actisense  Device
 			StartDevice();
@@ -260,7 +253,7 @@ bool Actisense::LoadConfiguration(void) {
 bool Actisense::SaveConfiguration(void) {
 	if (configSettings) {
 		configSettings->SetPath(_T("/PlugIns/Actisense"));
-		// No UI for setting the adapterPortName (AlternativePort). It is manually set to override 
+		// No UI for setting the adapterPortName (AlternativePort). It is set manually to override 
 		// the default automatic detection of the serial port or tty device. 
 		// Similarly no UI for setting the value of actisenseChecksum (Checksum)
 		configSettings->Write(_T("Adapter"), canAdapter);
@@ -282,13 +275,21 @@ void Actisense::StopDevice(void) {
 	wxThreadError threadError;
 	if (actisenseDevice != nullptr) {
 		if (actisenseDevice->IsRunning()) {
-			threadError = actisenseDevice->Delete(&threadExitCode, wxTHREAD_WAIT_DEFAULT);
+			wxMessageOutputDebug().Printf(_T("Actisense Plugin, Terminating device thread id (0x%x)\n"), actisenseDevice->GetId());
+			threadError = actisenseDevice->Delete(&threadExitCode, wxTHREAD_WAIT_BLOCK);
 			if (threadError == wxTHREAD_NO_ERROR) {
 				wxLogMessage(_T("Actisense Plugin, Terminated device thread (%lu)"), threadExitCode);
+				wxMessageOutputDebug().Printf(_T("Actisense Plugin, Terminated device thread (%lu)\n"), threadExitCode);
 			}
 			else {
 				wxLogMessage(_T("Actisense Plugin, Error terminating device thread (%lu)"), threadError);
+				wxMessageOutputDebug().Printf(_T("Actisense Plugin, Error terminating device thread (%lu)\n"), threadError);
 			}
+			// wait for the interface thread to exit
+			actisenseDevice->Wait(wxTHREAD_WAIT_BLOCK);
+			
+			// can only delete the interface if it is a joinable thread.
+			delete actisenseDevice;
 		}
 	}
 }
@@ -299,15 +300,20 @@ void Actisense::StartDevice(void) {
 		int returnCode = actisenseDevice->Init(canAdapter);
 		if ((returnCode & TWOCAN_RESULT_FATAL) == TWOCAN_RESULT_FATAL) {
 			wxLogError(_T("Actisense Plugin,  Error initializing device (%lu)"), returnCode);
+			wxMessageOutputDebug().Printf(_T("Actisense Plugin,  Error initializing device (%lu)\n"), returnCode);
+
 		}
 		else {
 			wxLogMessage(_T("Actisense Plugin, Device initialized"));
+			wxMessageOutputDebug().Printf(_T("Actisense Plugin, Device initialized"));
 			int threadResult = actisenseDevice->Run();
 			if (threadResult == wxTHREAD_NO_ERROR) {
 				wxLogMessage(_T("Actisense Plugin, Successfully created device thread"));
+				wxMessageOutputDebug().Printf(_T("Actisense Plugin, Successfully created device thread\n"));
 			}
 			else {
 				wxLogError(_T("Actisense Plugin, Error creating device thread (%lu)"), threadResult);
+				wxMessageOutputDebug().Printf(_T("Actisense Plugin, Error creating device thread (%lu)\n"), threadResult);
 			}
 		}
 	}

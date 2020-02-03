@@ -71,21 +71,27 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	
 	if (result != TWOCAN_RESULT_SUCCESS) {
 		wxLogMessage(_T("Actisense NGT-1, Error detecting port (%lu)"), result);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error detecting port (%lu)\n"), result);
 		return result;
 	}
 	
 	wxLogMessage(_T("Actisense NGT-1, Attempting to open %s"), portName);
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Attempting to open %s\n"), portName);
 			
 #ifdef __LINUX__
 	// Open the serial device
 	serialPortHandle = open(portName.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
 	
 	if (serialPortHandle == -1) {
+		wxLogMessage(_T("Actisense NGT-1, Error Opening %s"),portName.c_str());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error opening %s\n"),portName.c_str());
 		return 	SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER, TWOCAN_ERROR_CREATE_SERIALPORT);
 	}
     
     // Ensure it is a tty device
     if (!isatty(serialPortHandle)) { 
+		wxLogMessage(_T("Actisense NGT-1, %s is not a TTY device\n"),portName.c_str());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, %s is not a TTY device\n"),portName.c_str());
 		return SET_ERROR(TWOCAN_RESULT_FATAL , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
     }
     
@@ -94,6 +100,8 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	
 	// Get the current configuration of the serial interface
 	if (tcgetattr(serialPortHandle, &serialPortSettings) == -1) { 
+		wxLogMessage(_T("Actisense NGT-1, Error getting serial port configuration"));
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error getting serial port configuration\n"));
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
@@ -118,11 +126,15 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 
 	// Set baud rate
 	if ((cfsetispeed(&serialPortSettings, B115200) == -1) || (cfsetospeed(&serialPortSettings, B115200) == -1)) {
+		wxLogMessage(_T("Actisense NGT-1, Error setting baud  rate"));
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error setting baud rate\n"));
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
 	// Apply the configuration
 	if (tcsetattr(serialPortHandle, TCSAFLUSH, &serialPortSettings) == -1) { 
+		wxLogMessage(_T("Actisense NGT-1, Error applying tty device settings"));
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error applying tty device settings\n"));
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	
@@ -135,6 +147,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	
 	if (serialPortHandle == INVALID_HANDLE_VALUE) {
 		wxLogMessage(_T("Actisense NGT-1, Error opening port %s (%lu)"), portName, GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error opening port %s (%lu)\n"), portName, GetLastError());
 		return 	SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER, TWOCAN_ERROR_CREATE_SERIALPORT);
 	}
 	
@@ -144,6 +157,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 
 	if (!GetCommState(serialPortHandle, &serialPortSettings)) {
 		wxLogMessage(_T("Actisense NGT-1, Error GetCommState (%lu)"),GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error GetCommState (%lu)\n"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
@@ -156,6 +170,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 
 	if (!SetCommState(serialPortHandle, &serialPortSettings)) {
 		wxLogMessage(_T("Actisense NGT-1, Error SetCommState (%lu)"),GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error SetCommState (%lu)\n"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	
@@ -168,6 +183,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 
 	if (!SetCommTimeouts(serialPortHandle, &serialPortTimeouts)) {
 		wxLogMessage(_T("Actisense NGT-1, Error SetCommTimeOuts (%lu)"),GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error SetCommTimeOuts (%lu)\n"),GetLastError());
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	
@@ -178,6 +194,7 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 #endif
 
 	wxLogMessage(_T("Actisense NGT-1, Successfully opened %s"), portName);
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Successfully opened %s\n"), portName);
 
 	// Send the NGT-1 Initialization Sequence
 	return ConfigureAdapter();
@@ -200,6 +217,8 @@ int ActisenseNGT1::Close(void) {
 	// ToDo
 #endif
 	wxLogMessage(_T("Actisense NGT-1, Closed serial port"));
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Closed serial port\n"));
+	
 	return TWOCAN_RESULT_SUCCESS;
 }
 
@@ -240,6 +259,8 @@ void ActisenseNGT1::Read() {
 #endif
 
 			if (bytesRead > 0) {
+				
+				wxMessageOutputDebug().Printf(_T("Bytes read (%lu)\n"),bytesRead);
 
 				for (int i = 0; i < (int)bytesRead; i++) {
 
@@ -321,8 +342,23 @@ void ActisenseNGT1::Read() {
 
 						if ((checksum % 256) == 0) {
 							if (assemblyBuffer.at(0) == N2K_RX_CMD) {
+								
+								// debug hex dump of received message
+								int j = 0;
+								wxString debugString;
+								for (int i = 0; i < assemblyBuffer.size(); i++) {
+									debugString.Append(wxString::Format("%02X ",assemblyBuffer.at(i)));
+									j++;
+									if ((j % 8) == 0) {
+										wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+										j = 0;
+										debugString.Clear();
+									}
+								}
+								
 								// we have received a valid frame so send it
 								deviceQueue->Post(assemblyBuffer);
+								
 							}
 						}
 
@@ -362,6 +398,7 @@ wxThread::ExitCode ActisenseNGT1::Entry() {
 // OnExit, called when thread is being destroyed
 void ActisenseNGT1::OnExit() {
 	wxLogMessage(_T("Actisense NGT-1, Read thread exiting."));
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Read thread exiting.\n"));
 	// Nothing to do ??
 }
 
@@ -380,6 +417,7 @@ int ActisenseNGT1::ConfigureAdapter(void) {
 	if (bytesWritten == 0) {
 		int err = GetLastError();
 		wxLogMessage(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence: %d"),err);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence: %d\n"),err);
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 
@@ -401,6 +439,7 @@ int ActisenseNGT1::ConfigureAdapter(void) {
 #endif
 
 	wxLogMessage(_T("Actisense NGT-1, Sent NGT-1 Reset Sequence"));
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Sent NGT-1 Reset Sequence\n"));
 	return TWOCAN_RESULT_SUCCESS;
 }
 
@@ -430,6 +469,7 @@ int serialNumber;
 	
 	if (result != TWOCAN_RESULT_SUCCESS) {
 		wxLogMessage(_T("Actisense NGT-1, Error searching registry: %d"),result);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error searching registry: %d\n"),result);
 		return result;
 	}
 	
@@ -437,11 +477,13 @@ int serialNumber;
 	
 	if (result != TWOCAN_RESULT_SUCCESS) {
 		wxLogMessage(_T("Actisense NGT-1, Error retrieving port name: %d"),result);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error retrieving port name: %d\n"),result);
 		return result;
 	}
 #endif
 	
 	wxLogMessage(_T("Actisense NGT-1, Connected to: %s"),portName);
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Connected to: %s\n"),portName);
 	return result;
 
 }
@@ -457,6 +499,7 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 	
 	// BUG BUG DEBUG
 	wxLogMessage(_T("Actisense NGT - 1, Opening registry key %s"), CONST_FTDIBUS_KEY);
+	wxMessageOutputDebug().Printf(_T("Actisense NGT - 1, Opening registry key %s\n"), CONST_FTDIBUS_KEY);
 
 	// Get a handle to the registry
 	// Require KEY_READ and ENUMERATE_KEYS rights 
@@ -468,12 +511,14 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 		
 		// BUG BUG DEBUG
 		wxLogMessage(_T("Actisense NGT-1, RegOpenKey Error: %lu (%d)"), result, GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, RegOpenKey Error: %lu (%d)\n"), result, GetLastError());
 		
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_ADAPTER_NOT_FOUND);
 	}
 
 	// BUG BUG DEBUG
 	wxLogMessage(_T("Found registry key %s"), CONST_FTDIBUS_KEY);
+	wxMessageOutputDebug().Printf(_T("Found registry key %s\n"), CONST_FTDIBUS_KEY);
 
 	DWORD countOfKeys;
 	DWORD maxKeyLength;
@@ -487,6 +532,7 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 		
 		// BUG BUG DEBUG
 		wxLogMessage(_T("Actisense NGT-1, RegQueryKey Error: %lu (%d)"), result, GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, RegQueryKey Error: %lu (%d)\n"), result, GetLastError());
 		
 		RegCloseKey(registryKey);
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_ADAPTER_NOT_FOUND);
@@ -494,7 +540,8 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 	
 	// BUG BUG DEBUG
 	wxLogMessage(_T("Actisense NGT-1, Number of Sub Keys: %d"), countOfKeys);
-
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Number of Sub Keys: %d\n"), countOfKeys);
+	
 	// Iterate through each key until we find one that matches the Vendor & Product ID's
 	for (int i = 0; i < (int)countOfKeys; i++) {
 		WCHAR *keyName = (WCHAR *)malloc(1024);
@@ -505,6 +552,7 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 		if (result != ERROR_SUCCESS) {
 			// BUG BUG DEBUG
 			wxLogMessage(_T("Actisense NGT-1, RegEnumKey Error: %lu (%d)"), result, GetLastError());
+			wxMessageOutputDebug().Printf(_T("Actisense NGT-1, RegEnumKey Error: %lu (%d)\n"), result, GetLastError());
 			break;
 		}
 
@@ -528,7 +576,9 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 
 		// BUG BUG DEBUG
 		wxLogMessage(_T("Actisense NGT-1, Vendor ID: %s"), vendorID);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Vendor ID: %s\n"), vendorID);
 		wxLogMessage(_T("Actisense NGT-1, Product ID: %s"), productID);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Product ID: %s\n"), productID);
 
 			
 		// Check if we have a matching Vendor ID & Product ID
@@ -546,6 +596,7 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 				
 				// BUG BUG DEBUG
 				wxLogMessage(_T("Actisense NGT-1, Serial No: %lu"), wcstol(serialNumber, NULL, 16));
+				wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Serial No: %lu\n"), wcstol(serialNumber, NULL, 16));
 				// Convert serial number from hex to decimal and save it
 				*actisenseSerialNumber = wcstol(serialNumber, NULL, 16);
 			}
@@ -555,10 +606,13 @@ int ActisenseNGT1::FindDeviceRegistryKey(WCHAR *actisenseRegistryKey, int *actis
 			
 			// BUG BUG DEBUG
 			wxLogMessage(_T("Actisense NGT-1, Found Actisense NGT-1 key: %s"), actisenseKeyName);
+			wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Found Actisense NGT-1 key: %s\n"), actisenseKeyName);
+			
 			// Save the full key path to return to the caller
 			
 			// BUG BUG DEBUG
 			wxLogMessage(_T("Actisense NGT-1, Saving: %s Length: %d"), actisenseKeyName, wcslen(actisenseKeyName));
+			wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Saving: %s Length: %d\n"), actisenseKeyName, wcslen(actisenseKeyName));
 			
 			wsprintf(actisenseRegistryKey,L"%s\\%s",CONST_FTDIBUS_KEY, actisenseKeyName);
 			break;
@@ -598,12 +652,15 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 	// BUG BUG Should check keyName and portName are not NULL
 	// BUG BUG DEBUG
 	wxLogMessage(_T("Actisense NGT-1, Opening registry key: %s"), rootKey);
+	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Opening registry key: %s\n"), rootKey);
 
 	result = RegOpenKeyEx(HKEY_LOCAL_MACHINE, rootKey, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &registryKey);
 
 	if (result != ERROR_SUCCESS) {
 		// BUG BUG DEBUG
 		wxLogMessage(_T("Actisense NGT-1, RegOpenKey Error: %lu (%d)"), result, GetLastError());
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, RegOpenKey Error: %lu (%d)\n"), result, GetLastError());
+		
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 	// iterate the sub keys until we find a sub key that contains the matching classGUID
@@ -616,7 +673,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 		}
 
 		// BUG BUG DEBUG
-		// wprintf(L"Registry Sub Key: %s (%d)\n", subKeyName, subKeyLength);
+		wxMessageOutputDebug().Printf(_T("Registry Sub Key: %s (%d)\n", subKeyName, subKeyLength);
 
 		// Note Service matches the SubKey 'FTSER2K' for detecting if device is present
 		
@@ -627,7 +684,8 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 		
 			// BUG BUG DEBUG
 			wxLogMessage(_T("Actisense NGT-1, ClassGUID Value: %s  Length: %d Type: %d"), keyValue, keyLength, keyType);
-
+			wxMessageOutputDebug().Printf(_T("Actisense NGT-1, ClassGUID Value: %s  Length: %d Type: %d\n"), keyValue, keyLength, keyType);
+			
 			// BUG BUG Do I need to handle ANSI variants of the GUID
 			// WCHAR unicodeValue[1024];
 			// MultiByteToWideChar(CP_OEMCP, 0, (LPCCH)keyValue, -1, (LPWSTR)unicodeValue, (int)keyLength);
@@ -635,6 +693,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 
 				// BUG BUG Debug
 				wxLogMessage(_T("Actisense NGT-1, Found Matching ClassGUID"));
+				wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Found Matching ClassGUID\n"));
 
 				// Get the friendly name for the NGT-1 device
 				keyLength = 1024 * (sizeof(keyValue) / sizeof(*keyValue));
@@ -644,6 +703,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 					
 					// BUG BUG DEBUG
 					wxLogMessage(_T("Actisense NGT-1, FriendlyName Value: %s  Length: %d Type: %d"), keyValue, keyLength, keyType);
+					wxMessageOutputDebug().Printf(_T("Actisense NGT-1, FriendlyName Value: %s  Length: %d Type: %d\n"), keyValue, keyLength, keyType);
 					
 					// Save the friendly name
 					wcsncpy(friendlyName, keyValue, keyLength);
@@ -658,11 +718,13 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 				if (result == ERROR_SUCCESS) {
 					// BUG BUG DEBUG
 					wxLogMessage(_T("Actisense NGT-1, Port Name: %s  Length: %d Type: %d"), keyValue , keyLength, keyType);
+					wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Port Name: %s  Length: %d Type: %d\n"), keyValue , keyLength, keyType);
 					
 					// Save the serial port name
 					// Append the ':'
 					portName = wxString::Format(_T("%s:"),keyValue);
 					wxLogMessage(_T("Actisense NGT-1, COM Port: %s"), portName);
+					wxMessageOutputDebug().Printf(_T("Actisense NGT-1, COM Port: %s"), portName);
 					
 					foundKey = TRUE;
 				} // end port name
@@ -707,7 +769,7 @@ int ActisenseNGT1::GetPortSettings(wxString portName,int *baudRate, int *dataBit
 	}
 
 	// BUG BUG DEBUG
-	// wprintf(L"Port Name: %s Value: %s  Length: %d Type: %d)\n", portName, keyValue, keyLength, keyType);
+	wxMessageOutputDebug().Printf(_T("Port Name: %s Value: %s  Length: %d Type: %d\n"), portName, keyValue, keyLength, keyType);
 
 	WCHAR *buffer;
 

@@ -29,7 +29,7 @@
 
 #include "actisense_device.h"
 
-ActisenseDevice::ActisenseDevice(wxEvtHandler *handler) : wxThread(wxTHREAD_DETACHED) {
+ActisenseDevice::ActisenseDevice(wxEvtHandler *handler) : wxThread(wxTHREAD_JOINABLE) {
 	// Save a reference to our "parent", the plugin event handler so we can pass events to it
 	eventHandlerAddress = handler;
 	
@@ -114,14 +114,33 @@ wxThread::ExitCode ActisenseDevice::Entry() {
 
 // OnExit, called when the plugin invokes thread->delete and Entry returns
 void ActisenseDevice::OnExit() {
-	int returnCode;
-	
 	// Terminate the interface thread
 	wxThread::ExitCode threadExitCode;
-	returnCode = deviceInterface->Delete(&threadExitCode,wxTHREAD_WAIT_BLOCK);
-	returnCode = deviceInterface->Close();
+	wxThreadError threadError;
 	
-	wxLogMessage(_T("Actisense Device, Terminated interface (%lu)"), returnCode);
+	wxMessageOutputDebug().Printf(_T("Actisense Device, Terminating interface thread id (0x%x)\n"), deviceInterface->GetId());
+	threadError = deviceInterface->Delete(&threadExitCode,wxTHREAD_WAIT_BLOCK);
+	if (threadError == wxTHREAD_NO_ERROR) {
+		wxLogMessage(_T("Actisense Device, Terminated interface (%lu)"), threadExitCode);
+		wxMessageOutputDebug().Printf(_T("Actisense Device, Terminated interface (%lu)\n"), threadExitCode);
+	}
+	else {
+		wxLogMessage(_T("Actisense Device, Error terminating interface thread (%lu)"),threadError);
+		wxMessageOutputDebug().Printf(_T("Actisense Device, Error terminating interface thread (%lu)\n"),threadError);		
+	}
+	// wait for the interface thread to exit
+	deviceInterface->Wait(wxTHREAD_WAIT_BLOCK);
+	
+	// Can only invoke close if it is a joinable thread as detached threads delete themselves.
+	int returnCode;
+	returnCode = deviceInterface->Close();
+	if (returnCode != TWOCAN_RESULT_SUCCESS) {
+		wxLogMessage(_T("Actisense Device, Error closing interface (%lu)"),returnCode);
+		wxMessageOutputDebug().Printf(_T("Actisense Device, Error closing interface (%lu)\n"),returnCode);
+	}
+	
+	// only delete the interface if it is a joinable thread.
+	delete deviceInterface;
 
 	eventHandlerAddress = NULL;
 
@@ -131,6 +150,7 @@ void ActisenseDevice::OnExit() {
 			rawLogFile.Flush();
 			rawLogFile.Close();
 			wxLogMessage(_T("Actisense Device, Closed Log File"));
+			wxMessageOutputDebug().Printf(_T("Actisense Device, Closed Log File\n"));
 		}
 	}
 	
@@ -156,6 +176,7 @@ int ActisenseDevice::ReadActisenseDriver(void) {
 	// Start the interface's Read thread
 	deviceInterface->Run();
 	wxLogMessage(_T("Actisense Device, Started interface thread"));
+	wxMessageOutputDebug().Printf(_T("Actisense Device, Started interface thread\n"));
 	
 	while (!TestDestroy()) {
 		
@@ -176,7 +197,8 @@ int ActisenseDevice::ReadActisenseDriver(void) {
 	} // end while
 
 	wxLogMessage(_T("Actisense Device, Read thread exiting"));
-
+	wxMessageOutputDebug().Printf(_T("Actisense Device, Read thread exiting\n"));
+	
 	return TWOCAN_RESULT_SUCCESS;	
 }
 
@@ -217,7 +239,8 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 		header.destination = receivedFrame.at(6);
 		header.source = receivedFrame.at(7);
 		header.priority = receivedFrame.at(2);
-	
+		
+			
 		// Timestamp is encoded over bytes 8,9,10,11
 		// BUG BUG if we are logging, use this as the time stamp ??
 	
@@ -247,6 +270,12 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 	
 	// If we receive a frame from a device, then by definition it is still alive!
 	networkMap[header.source].timestamp = wxDateTime::Now();
+	
+	wxMessageOutputDebug().Printf(_T("Source: %lu\n"),header.source);
+	wxMessageOutputDebug().Printf(_T("PGN: %lu\n"),header.pgn);
+	wxMessageOutputDebug().Printf(_T("Destination: %lu\n"),header.destination);
+	wxMessageOutputDebug().Printf(_T("Priority: %lu\n"),header.priority);
+		
 	
 	switch (header.pgn) {
 		

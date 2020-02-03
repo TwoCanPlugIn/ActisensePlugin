@@ -40,30 +40,35 @@ int ActisenseEBL::Open(const wxString& fileName) {
 	
 	// BUG BUG Could determine the path separator & code appropriately....
 	
-#ifdef __WXMSW__
-	logFileName = wxString::Format("%s\\%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());
-#endif
+		
+//#ifdef __WXMSW__
+//	logFileName = wxString::Format("%s\\%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());
+//#endif
 
 	
-#ifdef __LINUX__
-	logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
-#endif
+//#ifdef __LINUX__
+	// logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
+	 logFileName = wxStandardPaths::Get().GetDocumentsDir() + wxFileName::GetPathSeparator() + fileName;
+//#endif
 
-#ifdef __WXOSX__
-	logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
-#endif
+//#ifdef __WXOSX__
+//	logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
+//#endif
 
 	wxLogMessage(_T("Actisense EBL, Attempting to open log file: %s"), logFileName.c_str());
+	wxMessageOutputDebug().Printf(_T("Actisense EBL, Attempting to open log file: %s"), logFileName.c_str());
 	
 	logFileStream.open(logFileName.c_str(), std::ifstream::in | std::ifstream::binary);	
 	
 
 	if (logFileStream.fail()) {
 		wxLogMessage(_T("Actisense EBL, Failed to open file: %s"), logFileName.c_str());
+		wxMessageOutputDebug().Printf(_T("Actisense EBL, Failed to open file: %s"), logFileName.c_str());
 		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_FILE_NOT_FOUND);
 	}
 	else {
 		wxLogMessage(_T("Actisense EBL, Successfully opened file: %s"), logFileName.c_str());
+		wxMessageOutputDebug().Printf(_T("Actisense EBL, Successfully opened file: %s"), logFileName.c_str());
 		return TWOCAN_RESULT_SUCCESS;
 	}
 }
@@ -179,6 +184,21 @@ void ActisenseEBL::Read() {
 					
 					if ((checksum % 256) == 0) {
 						if (assemblyBuffer.at(0) == N2K_RX_CMD) {
+							
+							// debug hex dump of received message
+							int j = 0;
+							wxString debugString;
+							for (size_t i = 0; i < assemblyBuffer.size(); i++) {
+								debugString.Append(wxString::Format("%02X ",assemblyBuffer.at(i)));
+								j++;
+								if ((j % 8) == 0) {
+									wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+									j = 0;
+									debugString.Clear();
+								}
+							}
+							
+							
 							// we have a valid received frame so send it
 							deviceQueue->Post(assemblyBuffer);																					
 						}

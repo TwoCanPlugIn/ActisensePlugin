@@ -23,6 +23,7 @@
 
 #include "actisense_interface.h"
 
+
 // Whether to perform checksum calculation
 extern bool actisenseChecksum;
 

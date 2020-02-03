@@ -49,6 +49,9 @@
 // User's paths/documents folder
 #include <wx/stdpaths.h>
 
+// For path separator
+#include <wx/filename.h>
+
 // Message Queue
 #include <wx/msgqueue.h>
 
