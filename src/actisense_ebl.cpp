@@ -37,30 +37,13 @@ ActisenseEBL::~ActisenseEBL() {
 
 int ActisenseEBL::Open(const wxString& fileName) {
 	// Open the log file
-	
-	// BUG BUG Could determine the path separator & code appropriately....
-	
-		
-//#ifdef __WXMSW__
-//	logFileName = wxString::Format("%s\\%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());
-//#endif
-
-	
-//#ifdef __LINUX__
-	// logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
-	 logFileName = wxStandardPaths::Get().GetDocumentsDir() + wxFileName::GetPathSeparator() + fileName;
-//#endif
-
-//#ifdef __WXOSX__
-//	logFileName = wxString::Format("%s/%s", wxStandardPaths::Get().GetDocumentsDir(),fileName.c_str());	
-//#endif
+	logFileName = wxStandardPaths::Get().GetDocumentsDir() + wxFileName::GetPathSeparator() + fileName;
 
 	wxLogMessage(_T("Actisense EBL, Attempting to open log file: %s"), logFileName.c_str());
 	wxMessageOutputDebug().Printf(_T("Actisense EBL, Attempting to open log file: %s"), logFileName.c_str());
 	
 	logFileStream.open(logFileName.c_str(), std::ifstream::in | std::ifstream::binary);	
 	
-
 	if (logFileStream.fail()) {
 		wxLogMessage(_T("Actisense EBL, Failed to open file: %s"), logFileName.c_str());
 		wxMessageOutputDebug().Printf(_T("Actisense EBL, Failed to open file: %s"), logFileName.c_str());
@@ -197,8 +180,7 @@ void ActisenseEBL::Read() {
 									debugString.Clear();
 								}
 							}
-							
-							
+														
 							// we have a valid received frame so send it
 							deviceQueue->Post(assemblyBuffer);																					
 						}

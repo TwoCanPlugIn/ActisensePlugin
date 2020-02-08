@@ -30,7 +30,6 @@
 
 #include "actisense_plugin.h"
 #include "actisense_icons.h"
-#include "twocanautopilotsettings.h"
 
 // Globally accessible variables used by the plugin, device and the settings dialog.
 wxFileConfig *configSettings;

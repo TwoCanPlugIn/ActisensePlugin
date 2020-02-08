@@ -33,6 +33,9 @@
 #ifdef __LINUX__
 #include <termios.h>
 #include <unistd.h>
+#include <wx/dir.h>
+#include <wx/textfile.h>
+#include <wx/regex.h>
 #endif
 
 extern bool actisenseChecksum;
@@ -65,6 +68,7 @@ private:
 	// Serial port handle
 #ifdef __LINUX__
 	int serialPortHandle;
+	int FindTTYDevice(wxString& ttyDevice, const int vid, const int pid);
 #endif
 
 #ifdef __WXMSW__

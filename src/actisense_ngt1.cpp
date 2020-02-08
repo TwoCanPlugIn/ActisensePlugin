@@ -226,15 +226,24 @@ int ActisenseNGT1::Close(void) {
 void ActisenseNGT1::Read() {
 	// used to construct valid Actisense messages
 	std::vector<byte> assemblyBuffer;
+	
 	// read 128 at a time ??
 	std::vector<byte> readBuffer(128,0);
+	
 	// used to iterate through the readBuffer
 #ifdef __LINUX__
 	int bytesRead = 0;
 #endif
+
+#ifdef __WXOSX__
+	// ToDo bytesRead
+#endif
+
+
 #ifdef __WXMSW__
 	DWORD bytesRead = 0;
 #endif
+
 	// if we've found an ASCII Control Char DLE or ESC
 	bool isEscaped = false;
 	// if we've found an ASCII Control Char STX (preceded by a DLE)
@@ -260,7 +269,19 @@ void ActisenseNGT1::Read() {
 
 			if (bytesRead > 0) {
 				
+				// BUG BUG debugging code just to find what is being sent by the NGT-1
 				wxMessageOutputDebug().Printf(_T("Bytes read (%lu)\n"),bytesRead);
+				wxString rawData;
+				int k = 0;
+				for (int i = 0; i < (int)bytesRead; i++) {
+					rawData.Append(wxString::Format("%02X ",readBuffer.at(i)));
+					k++;
+					if ((k % 8) == 0) {
+						wxMessageOutputDebug().Printf("%s\n",rawData.c_str());
+						k = 0;
+						rawData.Clear();
+					}
+				}
 
 				for (int i = 0; i < (int)bytesRead; i++) {
 
@@ -346,7 +367,7 @@ void ActisenseNGT1::Read() {
 								// debug hex dump of received message
 								int j = 0;
 								wxString debugString;
-								for (int i = 0; i < assemblyBuffer.size(); i++) {
+								for (size_t i = 0; i < assemblyBuffer.size(); i++) {
 									debugString.Append(wxString::Format("%02X ",assemblyBuffer.at(i)));
 									j++;
 									if ((j % 8) == 0) {
@@ -361,7 +382,6 @@ void ActisenseNGT1::Read() {
 								
 							}
 						}
-
 
 						// Reset everything for next message
 						assemblyBuffer.clear();
@@ -430,6 +450,8 @@ int ActisenseNGT1::ConfigureAdapter(void) {
 	bytesWritten = write(serialPortHandle, writeBuffer.data(),writeBuffer.size());
 	
 	if (bytesWritten == -1) {
+		wxLogMessage(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence: %d"),errno);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error sending NGT-1 Reset Sequence: %d\n"),errno);
 		return SET_ERROR(TWOCAN_RESULT_ERROR , TWOCAN_SOURCE_DRIVER , TWOCAN_ERROR_CONFIGURE_ADAPTER);
 	}
 #endif
@@ -449,9 +471,14 @@ int result;
 int serialNumber;
 
 #ifdef __LINUX__	
-// BUG BUG Need to find device
- portName = "/dev/ttyUSB0";
- result = TWOCAN_RESULT_SUCCESS;
+	result = FindTTYDevice(portName, 0x0403, 0xD9AA);
+ 
+	if (result != TWOCAN_RESULT_SUCCESS) {
+		wxLogMessage(_T("Actisense NGT-1, Error finding TTY Device: %d"),result);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Error finding TTY Device: %d\n"),result);
+		return result;
+	}
+ 
 #endif
 
 #ifdef __WXOSX__
@@ -487,6 +514,113 @@ int serialNumber;
 	return result;
 
 }
+
+#ifdef __LINUX__
+// Find the ttyUSB device tht the Actisense NGT-1 is connected to
+// If udev rules used to configure different port, then use Alternate Port Name config setting
+int ActisenseNGT1::FindTTYDevice(wxString& ttyDevice, const int vid, const int pid) {
+	bool foundDevice = false;
+	ttyDevice = wxEmptyString;
+	wxString ueventFile;
+	wxString devicePath = "/sys/bus/usb-serial/devices";
+
+    wxMessageOutputDebug().Printf(_T("Searching %s\n"),devicePath);
+	
+	wxDir deviceDir(devicePath);
+
+	if (!deviceDir.IsOpened()) {
+		wxMessageOutputDebug().Printf(_T("Error Opening %s\n"),devicePath);
+	}
+	else {
+		wxString fileName;
+
+		// Search for directories matching ttyUSB*
+		bool filesFound = deviceDir.GetFirst(&fileName, "ttyUSB*", wxDIR_DEFAULT);
+
+		while (filesFound) {
+			wxMessageOutputDebug().Printf(_T("Found directory: %s\n"), fileName);
+						
+			/* looking for a file named uevent
+			 * the contents of the file look like:
+			 * 
+			 * DEVTYPE=usb_interface
+			 * DRIVER=pl2303
+			 * PRODUCT=67b/aaa0/300
+			 * TYPE=0/0/0
+			 * INTERFACE=255/0/0
+			 * MODALIAS=usb:v067BpAAA0d0300dc00dsc00dp00icFFisc00ip00in00
+			*/
+			
+			wxMessageOutputDebug().Printf(_T("Searching for: %s\n"),devicePath + "/" + fileName + "/../uevent");
+			
+			if (wxFile::Exists(devicePath + "/" + fileName + "/../uevent")) {
+				wxMessageOutputDebug().Printf(_T("uevent file exists, reading file\n"));
+			    wxTextFile textFile;
+			    wxString line;
+			    textFile.Open(devicePath + "/" + fileName + "/../uevent");
+			    // Regular Expression match
+			    wxString match = "^PRODUCT=([0-9A-Fa-f]{3,4})/([0-9A-Fa-f]{3,4})/([0-9A-Fa-f]{3,})";
+			    wxRegEx regex;
+			    regex.Compile(match, wxRE_ADVANCED |  wxRE_NEWLINE);
+			    
+			    line = textFile.GetFirstLine();
+				wxMessageOutputDebug().Printf(_T("%s\n"),line);
+				
+			    while(!textFile.Eof()) {
+					
+					if (regex.Matches(line,wxRE_DEFAULT)) {
+						wxMessageOutputDebug().Printf(_T("Line matches regex pattern\n"));
+						wxMessageOutputDebug().Printf(_T("%s\n"),regex.GetMatch(line,1));
+						wxMessageOutputDebug().Printf(_T("%s\n"),regex.GetMatch(line,2));
+						wxMessageOutputDebug().Printf(_T("%s\n"),regex.GetMatch(line,3));
+						
+						int detectedVID = std::strtoul(regex.GetMatch(line,1),NULL,16);
+						int detectedPID = std::strtoul(regex.GetMatch(line,2),NULL,16);
+						
+						wxMessageOutputDebug().Printf(_T("Required VID %d, Detected VID %d\n"),vid,detectedVID);
+						wxMessageOutputDebug().Printf(_T("Required PID %d, Detected PID %d\n"),pid,detectedPID);
+						
+						if ((detectedVID == vid) && (detectedPID == pid)) {
+							wxMessageOutputDebug().Printf(_T("Found matching VID & PID\n"));
+							foundDevice = true;
+							ttyDevice = fileName;
+							ttyDevice.Prepend("/dev/");
+						}
+						else {
+							wxMessageOutputDebug().Printf(_T("VID & PID do not match\n"));
+						}
+					}
+					else {
+						wxMessageOutputDebug().Printf(_T("Line does not match regex pattern\n"));
+					}
+					
+					line = textFile.GetNextLine();
+					wxMessageOutputDebug().Printf(_T("%s\n"),line);
+				}
+				
+				textFile.Close();
+				
+			} 
+			
+			else {
+				wxMessageOutputDebug().Printf(_T("uevent file not present\n"));
+			}	
+			
+			filesFound = deviceDir.GetNext(&fileName);
+		}
+		
+		deviceDir.Close();
+	}
+	
+	if (foundDevice) {
+		return TWOCAN_RESULT_SUCCESS;
+	}
+	else {
+		return SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DRIVER,TWOCAN_ERROR_ADAPTER_NOT_FOUND);
+	}
+}
+
+#endif
 
 
 #ifdef __WXMSW__
