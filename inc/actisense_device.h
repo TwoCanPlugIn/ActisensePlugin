@@ -124,6 +124,9 @@ extern unsigned long uniqueId;
 // The current NMEA 2000 network address of this device
 extern int networkAddress;
 
+// global mutex used to control debug output (prevents interleaving of debug output)
+extern wxMutex *debugMutex;
+
 // Buffer used to re-assemble sequences of multi frame Fast Packet messages
 typedef struct FastMessageEntry {
 	byte IsFree; // indicate whether this entry is free

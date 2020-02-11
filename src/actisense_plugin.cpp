@@ -45,6 +45,9 @@ bool enableExcel;
 bool enableInfluxDB;
 bool actisenseChecksum;
 int logLevel;
+// global mutex used to control debug output (prevents interleaving of debug output)
+wxMutex *debugMutex;
+
 
 
 unsigned long uniqueId;
@@ -67,11 +70,15 @@ Actisense::Actisense(void *ppimgr) : opencpn_plugin_18(ppimgr), wxEvtHandler() {
 	Connect(wxEVT_SENTENCE_RECEIVED_EVENT, wxCommandEventHandler(Actisense::OnSentenceReceived));
 	// Load the plugin bitmaps/icons 
 	initialize_images();
+	
+	debugMutex = new wxMutex();
 }
 
 Actisense::~Actisense(void) {
 	// Disconnect the event handler
 	Disconnect(wxEVT_SENTENCE_RECEIVED_EVENT, wxCommandEventHandler(Actisense::OnSentenceReceived));
+	
+	delete debugMutex;
 }
 
 int Actisense::Init(void) {

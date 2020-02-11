@@ -121,8 +121,8 @@ void ActisenseDevice::OnExit() {
 	wxMessageOutputDebug().Printf(_T("Actisense Device, Terminating interface thread id (0x%x)\n"), deviceInterface->GetId());
 	threadError = deviceInterface->Delete(&threadExitCode,wxTHREAD_WAIT_BLOCK);
 	if (threadError == wxTHREAD_NO_ERROR) {
-		wxLogMessage(_T("Actisense Device, Terminated interface (%lu)"), threadExitCode);
-		wxMessageOutputDebug().Printf(_T("Actisense Device, Terminated interface (%lu)\n"), threadExitCode);
+		wxLogMessage(_T("Actisense Device, Terminated interface thread (%lu)"), threadExitCode);
+		wxMessageOutputDebug().Printf(_T("Actisense Device, Terminated interface thread (%lu)\n"), threadExitCode);
 	}
 	else {
 		wxLogMessage(_T("Actisense Device, Error terminating interface thread (%lu)"),threadError);
@@ -226,13 +226,67 @@ void ActisenseDevice::RaiseEvent(wxString sentence) {
 
 // Note that if actisenseChecksum = FALSE then
 // No overall length value and no checksum. Seems as though when using Linux these are not used ?
+
 void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 	CanHeader header;
 	std::vector<byte> payload;
 	std::vector<wxString> nmeaSentences;
 	bool result = FALSE;
+	bool hasChecksum = TRUE;
+	bool isValidFrame = FALSE;
 	
-	if (actisenseChecksum) {
+	// From Hubert's dumps some message have and some do not have checksums, aarrgghhh!
+	
+	if (receivedFrame.at(0) == N2K_RX_CMD) {
+		// overall length in byte 1 excludes command byte(0), length byte(1) and checksum byte(n)	
+		if (receivedFrame.at(1) == receivedFrame.size() - 3) {
+			// the checksum character at the end of the message
+			// ensures that the sum of all characters modulo 256 equals 0
+			int checksum = 0;
+			for (auto it : receivedFrame) {
+				checksum += it;
+			}
+			if ((checksum % 256) == 0) {
+				hasChecksum = TRUE;
+				isValidFrame = TRUE;
+			}
+			else {
+				hasChecksum = FALSE;
+				// but is also possibly an invalid frame ??
+				// What's the probability that byte 1 matches the frame length when the frame doesn't include length & checksum ??
+				isValidFrame = FALSE;
+			}
+			
+		}
+		else {
+			hasChecksum = FALSE;
+			isValidFrame = TRUE;
+		}
+						
+		// debug hex dump of received message
+		int j = 0;
+		wxString debugString;
+		debugMutex->Lock();
+		wxMessageOutputDebug().Printf("Received Frame\n");
+		for (size_t i = 0; i < receivedFrame.size(); i++) {
+			debugString.Append(wxString::Format("%02X ",receivedFrame.at(i)));
+			j++;
+			if ((j % 8) == 0) {
+				wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+				j = 0;
+				debugString.Clear();
+			}
+		}
+		
+		if (!debugString.IsEmpty()) {	
+			wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+			debugString.Clear();
+		}
+		wxMessageOutputDebug().Printf("\n");
+		// unlock once we have prnted out the header debugMutex->Unlock();
+		// end of debugging
+	
+		if ((hasChecksum == TRUE) && (isValidFrame == TRUE)) {
 		
 		// Construct the CAN Header
 		header.pgn = receivedFrame.at(3) + (receivedFrame.at(4)<< 8) + (receivedFrame.at(5) << 16);
@@ -246,439 +300,441 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 	
 		// Data Length is stored in byte 12
 		// Copy the CAN data
-		for (int i = 0; i < receivedFrame[12]; i++) {
-			payload.push_back(receivedFrame[13 + i]);
+			for (int i = 0; i < receivedFrame[12]; i++) {
+				payload.push_back(receivedFrame[13 + i]);
+			}
 		}
-	}
-	else {
-		// No checksum and no overall length. Alter indexes as appropriate.
-		// Construct the CAN Header
-		header.pgn = receivedFrame.at(2) + (receivedFrame.at(3) << 8) + (receivedFrame.at(4) << 16);
-		header.destination = receivedFrame.at(5);
-		header.source = receivedFrame.at(6);
-		header.priority = receivedFrame.at(1);
+		else if ((hasChecksum == FALSE) && (isValidFrame == TRUE)) {
+			// No checksum and no overall length. Alter indexes as appropriate.
+			// Construct the CAN Header
+			header.pgn = receivedFrame.at(2) + (receivedFrame.at(3) << 8) + (receivedFrame.at(4) << 16);
+			header.destination = receivedFrame.at(5);
+			header.source = receivedFrame.at(6);
+			header.priority = receivedFrame.at(1);
 	
-		// Timestamp is encoded over bytes 7,8,9,10
-		// BUG BUG if we are logging, use this as the time stamp ??
+			// Timestamp is encoded over bytes 7,8,9,10
+			// BUG BUG if we are logging, use this as the time stamp ??
 	
-		// Data Length is stored in byte 11
-		// Copy the CAN data
-		for (int i = 0; i < receivedFrame[11]; i++) {
-			payload.push_back(receivedFrame[12 + i]);
+			// Data Length is stored in byte 11
+			// Copy the CAN data
+			for (int i = 0; i < receivedFrame[11]; i++) {
+				payload.push_back(receivedFrame[12 + i]);
+			}
 		}
-	}
 	
-	// If we receive a frame from a device, then by definition it is still alive!
-	networkMap[header.source].timestamp = wxDateTime::Now();
-	
-	wxMessageOutputDebug().Printf(_T("Source: %lu\n"),header.source);
-	wxMessageOutputDebug().Printf(_T("PGN: %lu\n"),header.pgn);
-	wxMessageOutputDebug().Printf(_T("Destination: %lu\n"),header.destination);
-	wxMessageOutputDebug().Printf(_T("Priority: %lu\n"),header.priority);
+		// If we receive a frame from a device, then by definition it is still alive!
+		networkMap[header.source].timestamp = wxDateTime::Now();
 		
-	
-	switch (header.pgn) {
+		// debugMutex->Lock();
+		wxMessageOutputDebug().Printf(_T("Source: %lu\n"),header.source);
+		wxMessageOutputDebug().Printf(_T("PGN: %lu\n"),header.pgn);
+		wxMessageOutputDebug().Printf(_T("Destination: %lu\n"),header.destination);
+		wxMessageOutputDebug().Printf(_T("Priority: %lu\n\n"),header.priority);
+		debugMutex->Unlock();	
 		
-	case 59392: // ISO Ack
-		// No need for us to do anything as we don't send any requests (yet)!
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-		
-	case 59904: // ISO Request
-		unsigned int requestedPGN;
-		
-		DecodePGN59904(payload, &requestedPGN);
-		// What has been requested from us ?
-		switch (requestedPGN) {
-		
-			case 60928: // Address Claim
-				// BUG BUG The bastards are using an address claim as a heartbeat !!
-				if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
-					int returnCode;
-					returnCode = SendAddressClaim(networkAddress);
-					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Error Sending Address Claim (%lu)"), returnCode);
-					}
-				}
-				break;
-		
-			case 126464: // Supported PGN
-				if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
-					int returnCode;
-					returnCode = SendSupportedPGN();
-					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Error Sending Supported PGN (%lu)"), returnCode);
-					}
-				}
-				break;
-		
-			case 126993: // Heartbeat
-				// BUG BUG I don't think an ISO Request is allowed to request a heartbeat ??
-				break;
-		
-			case 126996: // Product Information 
-				if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
-					int returnCode;
-					returnCode = SendProductInformation();
-					if (returnCode != TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Error Sending Product Information (%lu)"), returnCode);
-					}
-				}
-				break;
-		
-			default:
-				// BUG BUG For other requested PG's send a NACK/Not supported
-				break;
-		}
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-		
-	case 60928: // ISO Address Claim
-		DecodePGN60928(payload, &deviceInformation);
-		// if another device is not claiming our address, just log it
-		if (header.source != networkAddress) {
+		switch (header.pgn) {
 			
-			// Add the source address so that we can  construct a "map" of the NMEA2000 network
-			deviceInformation.networkAddress = header.source;
+		case 59392: // ISO Ack
+			// No need for us to do anything as we don't send any requests (yet)!
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
 			
-			// BUG BUG Extraneous Noise Remove for production
+		case 59904: // ISO Request
+			unsigned int requestedPGN;
 			
-#ifndef NDEBUG
+			DecodePGN59904(payload, &requestedPGN);
+			// What has been requested from us ?
+			switch (requestedPGN) {
+			
+				case 60928: // Address Claim
+					// BUG BUG The bastards are using an address claim as a heartbeat !!
+					if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
+						int returnCode;
+						returnCode = SendAddressClaim(networkAddress);
+						if (returnCode != TWOCAN_RESULT_SUCCESS) {
+							wxLogMessage(_T("Actisense Device, Error Sending Address Claim (%lu)"), returnCode);
+						}
+					}
+					break;
+			
+				case 126464: // Supported PGN
+					if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
+						int returnCode;
+						returnCode = SendSupportedPGN();
+						if (returnCode != TWOCAN_RESULT_SUCCESS) {
+							wxLogMessage(_T("Actisense Device, Error Sending Supported PGN (%lu)"), returnCode);
+						}
+					}
+					break;
+			
+				case 126993: // Heartbeat
+					// BUG BUG I don't think an ISO Request is allowed to request a heartbeat ??
+					break;
+			
+				case 126996: // Product Information 
+					if ((header.destination == networkAddress) || (header.destination == CONST_GLOBAL_ADDRESS)) {
+						int returnCode;
+						returnCode = SendProductInformation();
+						if (returnCode != TWOCAN_RESULT_SUCCESS) {
+							wxLogMessage(_T("Actisense Device, Error Sending Product Information (%lu)"), returnCode);
+						}
+					}
+					break;
+			
+				default:
+					// BUG BUG For other requested PG's send a NACK/Not supported
+					break;
+			}
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
+			
+		case 60928: // ISO Address Claim
+			DecodePGN60928(payload, &deviceInformation);
+			// if another device is not claiming our address, just log it
+			if (header.source != networkAddress) {
+				
+				// Add the source address so that we can  construct a "map" of the NMEA2000 network
+				deviceInformation.networkAddress = header.source;
+				
+				// BUG BUG Extraneous Noise Remove for production
+				
+	#ifndef NDEBUG
 
-			wxLogMessage(_T("Actisense Network, Address: %d"), deviceInformation.networkAddress);
-			wxLogMessage(_T("Actisense Network, Manufacturer: %d"), deviceInformation.manufacturerId);
-			wxLogMessage(_T("Actisense Network, Unique ID: %lu"), deviceInformation.uniqueId);
-			wxLogMessage(_T("Actisense Network, Class: %d"), deviceInformation.deviceClass);
-			wxLogMessage(_T("Actisense Network, Function: %d"), deviceInformation.deviceFunction);
-			wxLogMessage(_T("Actisense Network, Industry %d"), deviceInformation.industryGroup);
+				wxLogMessage(_T("Actisense Network, Address: %d"), deviceInformation.networkAddress);
+				wxLogMessage(_T("Actisense Network, Manufacturer: %d"), deviceInformation.manufacturerId);
+				wxLogMessage(_T("Actisense Network, Unique ID: %lu"), deviceInformation.uniqueId);
+				wxLogMessage(_T("Actisense Network, Class: %d"), deviceInformation.deviceClass);
+				wxLogMessage(_T("Actisense Network, Function: %d"), deviceInformation.deviceFunction);
+				wxLogMessage(_T("Actisense Network, Industry %d"), deviceInformation.industryGroup);
+				
+	#endif
 			
-#endif
-		
-			// Maintain the map of the NMEA 2000 network.
-			// either this is a newly discovered device, or it is resending its address claim
-			if ((networkMap[header.source].uniqueId == deviceInformation.uniqueId) || (networkMap[header.source].uniqueId == 0)) {
-				networkMap[header.source].manufacturerId = deviceInformation.manufacturerId;
-				networkMap[header.source].uniqueId = deviceInformation.uniqueId;
-				networkMap[header.source].timestamp = wxDateTime::Now();
+				// Maintain the map of the NMEA 2000 network.
+				// either this is a newly discovered device, or it is resending its address claim
+				if ((networkMap[header.source].uniqueId == deviceInformation.uniqueId) || (networkMap[header.source].uniqueId == 0)) {
+					networkMap[header.source].manufacturerId = deviceInformation.manufacturerId;
+					networkMap[header.source].uniqueId = deviceInformation.uniqueId;
+					networkMap[header.source].timestamp = wxDateTime::Now();
+				}
+				else {
+					// or another device is claiming the address that an existing device had used, so clear out any product info entries
+					networkMap[header.source].manufacturerId = deviceInformation.manufacturerId;
+					networkMap[header.source].uniqueId = deviceInformation.uniqueId;
+					networkMap[header.source].timestamp = wxDateTime::Now();
+					networkMap[header.source].productInformation = {}; // I think this should initialize the product information struct;
+				}
 			}
 			else {
-				// or another device is claiming the address that an existing device had used, so clear out any product info entries
-				networkMap[header.source].manufacturerId = deviceInformation.manufacturerId;
-				networkMap[header.source].uniqueId = deviceInformation.uniqueId;
-				networkMap[header.source].timestamp = wxDateTime::Now();
-				networkMap[header.source].productInformation = {}; // I think this should initialize the product information struct;
+				// Another device is claiming our address
+				// If our NAME is less than theirs, reclaim our current address 
+				if (deviceName < deviceInformation.deviceName) {
+					int returnCode;
+					returnCode = SendAddressClaim(networkAddress);
+					if (returnCode == TWOCAN_RESULT_SUCCESS) {
+						wxLogMessage(_T("Actisense Device, Reclaimed network address %lu"), networkAddress);
+					}
+					else {
+						wxLogMessage(_T("Actisense Device, Error reclaming network address %lu (%lu)"), networkAddress, returnCode);
+					}
+				}
+				// Our uniqueId is larger (or equal), so increment our network address and see if we can claim the new address
+				else {
+					networkAddress += 1;
+					if (networkAddress <= CONST_MAX_DEVICES) {
+						int returnCode;
+						returnCode = SendAddressClaim(networkAddress);
+						if (returnCode == TWOCAN_RESULT_SUCCESS) {
+							wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
+						}
+						else {
+							wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
+						}
+					}
+					else {
+						// BUG BUG More than 253 devices on the network, we send an unable to claim address frame (source address = 254)
+						// Chuckles to self. What a nice DOS attack vector! Kick everyone else off the network!
+						// I guess NMEA never thought anyone would hack a boat! What were they (not) thinking!
+						wxLogError(_T("Actisense Device, Unable to claim address, more than %d devices"), CONST_MAX_DEVICES);
+						networkAddress = 0;
+						int returnCode;
+						returnCode = SendAddressClaim(CONST_NULL_ADDRESS);
+						if (returnCode == TWOCAN_RESULT_SUCCESS) {
+							wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
+						}
+						else {
+							wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
+						}
+					}
+				}
 			}
-		}
-		else {
-			// Another device is claiming our address
-			// If our NAME is less than theirs, reclaim our current address 
-			if (deviceName < deviceInformation.deviceName) {
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
+			
+		case 65240: // ISO Commanded address
+			// A device is commanding another device to use a specific address
+			DecodePGN65240(payload, &deviceInformation);
+			// If we are being commanded to use a specific address
+			// BUG BUG Not sure if an ISO Commanded Address frame is broadcast or if header.destination == networkAddress
+			if (deviceInformation.uniqueId == uniqueId) {
+				// Update our network address to the commanded address and send an address claim
+				networkAddress = deviceInformation.networkAddress;
 				int returnCode;
 				returnCode = SendAddressClaim(networkAddress);
 				if (returnCode == TWOCAN_RESULT_SUCCESS) {
-					wxLogMessage(_T("Actisense Device, Reclaimed network address %lu"), networkAddress);
+					wxLogMessage(_T("Actisense Device, Claimed commanded network address: %lu"), networkAddress);
 				}
 				else {
-					wxLogMessage(_T("Actisense Device, Error reclaming network address %lu (%lu)"), networkAddress, returnCode);
+					wxLogMessage("Actisense Device, Error claiming commanded network address %lu: %lu", networkAddress, returnCode);
 				}
 			}
-			// Our uniqueId is larger (or equal), so increment our network address and see if we can claim the new address
-			else {
-				networkAddress += 1;
-				if (networkAddress <= CONST_MAX_DEVICES) {
-					int returnCode;
-					returnCode = SendAddressClaim(networkAddress);
-					if (returnCode == TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
-					}
-					else {
-						wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
-					}
-				}
-				else {
-					// BUG BUG More than 253 devices on the network, we send an unable to claim address frame (source address = 254)
-					// Chuckles to self. What a nice DOS attack vector! Kick everyone else off the network!
-					// I guess NMEA never thought anyone would hack a boat! What were they (not) thinking!
-					wxLogError(_T("Actisense Device, Unable to claim address, more than %d devices"), CONST_MAX_DEVICES);
-					networkAddress = 0;
-					int returnCode;
-					returnCode = SendAddressClaim(CONST_NULL_ADDRESS);
-					if (returnCode == TWOCAN_RESULT_SUCCESS) {
-						wxLogMessage(_T("Actisense Device, Claimed network address %lu"), networkAddress);
-					}
-					else {
-						wxLogMessage(_T("Actisense Device, Error claiming network address %lu (%lu)"), networkAddress, returnCode);
-					}
-				}
-			}
-		}
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-		
-	case 65240: // ISO Commanded address
-		// A device is commanding another device to use a specific address
-		DecodePGN65240(payload, &deviceInformation);
-		// If we are being commanded to use a specific address
-		// BUG BUG Not sure if an ISO Commanded Address frame is broadcast or if header.destination == networkAddress
-		if (deviceInformation.uniqueId == uniqueId) {
-			// Update our network address to the commanded address and send an address claim
-			networkAddress = deviceInformation.networkAddress;
-			int returnCode;
-			returnCode = SendAddressClaim(networkAddress);
-			if (returnCode == TWOCAN_RESULT_SUCCESS) {
-				wxLogMessage(_T("Actisense Device, Claimed commanded network address: %lu"), networkAddress);
-			}
-			else {
-				wxLogMessage("Actisense Device, Error claiming commanded network address %lu: %lu", networkAddress, returnCode);
-			}
-		}
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-		
-	case 126992: // System Time
-		if (supportedPGN & FLAGS_ZDA) {
-			result = DecodePGN126992(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 126993: // Heartbeat
-		DecodePGN126993(header.source, payload);
-		// Update the matching entry in the network map
-		// BUG BUG what happens if we are yet to have populated this entry with the device details ?? Probably nothing...
-		networkMap[header.source].timestamp = wxDateTime::Now();
-		result = FALSE;
-		break;
-		
-	case 126996: // Product Information
-		DecodePGN126996(payload, &productInformation);
-		
-		// BUG BUG Extraneous Noise
-		
-#ifndef NDEBUG
-		wxLogMessage(_T("Actisense Node, Network Address %d"), header.source);
-		wxLogMessage(_T("Actisense Node, DB Ver: %d"), productInformation.dataBaseVersion);
-		wxLogMessage(_T("Actisense Node, Product Code: %d"), productInformation.productCode);
-		wxLogMessage(_T("Actisense Node, Cert Level: %d"), productInformation.certificationLevel);
-		wxLogMessage(_T("Actisense Node, Load Level: %d"), productInformation.loadEquivalency);
-		wxLogMessage(_T("Actisense Node, Model ID: %s"), productInformation.modelId);
-		wxLogMessage(_T("Actisense Node, Model Version: %s"), productInformation.modelVersion);
-		wxLogMessage(_T("Actisense Node, Software Version: %s"), productInformation.softwareVersion);
-		wxLogMessage(_T("Actisense Node, Serial Number: %s"), productInformation.serialNumber);
-#endif
-		
-		// Maintain the map of the NMEA 2000 network.
-		networkMap[header.source].productInformation = productInformation;
-		networkMap[header.source].timestamp = wxDateTime::Now();
-
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-
-	case 127245: // Rudder
-		if (supportedPGN & FLAGS_RDR) {
-			result = DecodePGN127245(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 127250: // Heading
-		if (supportedPGN & FLAGS_HDG) {
-			result = DecodePGN127250(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 127251: // Rate of Turn
-		if (supportedPGN & FLAGS_ROT) {
-			result = DecodePGN127251(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 127257: // Attitude
-		if (supportedPGN & FLAGS_XDR) {
-			result = DecodePGN127257(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 127258: // Magnetic Variation
-		// BUG BUG needs flags 
-		// BUG BUG Not actually used anywhere
-		result = DecodePGN127258(payload, &nmeaSentences);
-		break;
-
-	case 127488: // Engine Parameters, Rapid Update
-		if (supportedPGN & FLAGS_ENG) {
-			result = DecodePGN127488(payload, &nmeaSentences);
-		}
-		break;
-
-	case 127489: // Engine Parameters, Dynamic
-		if (supportedPGN & FLAGS_ENG) {
-			result = DecodePGN127489(payload, &nmeaSentences);
-		}
-		break;
-
-	case 127505: // Fluid Levels
-		if (supportedPGN & FLAGS_TNK) {
-			result = DecodePGN127505(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 128259: // Boat Speed
-		if (supportedPGN & FLAGS_VHW) {
-			result = DecodePGN128259(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 128267: // Water Depth
-		if (supportedPGN & FLAGS_DPT) {
-			result = DecodePGN128267(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 129025: // Position - Rapid Update
-		if (supportedPGN & FLAGS_GLL) {
-			result = DecodePGN129025(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129026: // COG, SOG - Rapid Update
-		if (supportedPGN & FLAGS_VTG) {
-			result = DecodePGN129026(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129029: // GNSS Position
-		if (supportedPGN & FLAGS_GGA) {
-			result = DecodePGN129029(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129033: // Time & Date
-		if (supportedPGN & FLAGS_ZDA) {
-			result = DecodePGN129033(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 129038: // AIS Class A Position Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129038(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129039: // AIS Class B Position Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129039(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129040: // AIS Class B Extended Position Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129040(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129041: // AIS Aids To Navigation (AToN) Position Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129041(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129283: // Cross Track Error
-		if (supportedPGN & FLAGS_XTE) {
-			result = DecodePGN129283(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 129284: // Navigation Information
-		// BUG BUG not supported yet
-		result = FALSE;
-		break;
-		
-	case 129285: // Route & Waypoint Information
-		if (supportedPGN & FLAGS_RTE) {
-			result = DecodePGN129285(payload, &nmeaSentences);
-		}
-		break;
-
-	case 129793: // AIS Position and Date Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129793(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129794: // AIS Class A Static & Voyage Related Data
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129794(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129798: // AIS Search and Rescue (SAR) Position Report
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129798(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129808: // Digital Selective Calling (DSC)
-		if (supportedPGN & FLAGS_DSC) {
-			result = DecodePGN129808(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129809: // AIS Class B Static Data, Part A
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129809(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 129810: // Class B Static Data, Part B
-		if (supportedPGN & FLAGS_AIS) {
-			result = DecodePGN129810(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 130306: // Wind data
-		if (supportedPGN & FLAGS_MWV) {
-			result = DecodePGN130306(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 130310: // Environmental Parameters
-		if (supportedPGN & FLAGS_MWT) {
-			result = DecodePGN130310(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 130311: // Environmental Parameters (supercedes 130310)
-		if (supportedPGN & FLAGS_MWT) {
-			result = DecodePGN130311(payload, &nmeaSentences);
-		}
-		break;
-	
-	case 130312: // Temperature
-		if (supportedPGN & FLAGS_MWT) {
-			result = DecodePGN130312(payload, &nmeaSentences);
-		}
-		break;
-		
-	case 130316: // Temperature Extended Range
-		if (supportedPGN & FLAGS_MWT) {
-			result = DecodePGN130316(payload, &nmeaSentences);
-		}
-		break;
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
 			
-	default:
-		// BUG BUG Should we log an unsupported PGN error ??
-		// No NMEA 0183 sentences to pass onto OpenCPN
-		result = FALSE;
-		break;
-	}
-	// Send each NMEA 0183 Sentence to OpenCPN
-	if (result == TRUE) {
-		for (std::vector<wxString>::iterator it = nmeaSentences.begin(); it != nmeaSentences.end(); ++it) {
-			SendNMEASentence(*it);
+		case 126992: // System Time
+			if (supportedPGN & FLAGS_ZDA) {
+				result = DecodePGN126992(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 126993: // Heartbeat
+			DecodePGN126993(header.source, payload);
+			// Update the matching entry in the network map
+			// BUG BUG what happens if we are yet to have populated this entry with the device details ?? Probably nothing...
+			networkMap[header.source].timestamp = wxDateTime::Now();
+			result = FALSE;
+			break;
+			
+		case 126996: // Product Information
+			DecodePGN126996(payload, &productInformation);
+			
+			// BUG BUG Extraneous Noise
+			
+	#ifndef NDEBUG
+			wxLogMessage(_T("Actisense Node, Network Address %d"), header.source);
+			wxLogMessage(_T("Actisense Node, DB Ver: %d"), productInformation.dataBaseVersion);
+			wxLogMessage(_T("Actisense Node, Product Code: %d"), productInformation.productCode);
+			wxLogMessage(_T("Actisense Node, Cert Level: %d"), productInformation.certificationLevel);
+			wxLogMessage(_T("Actisense Node, Load Level: %d"), productInformation.loadEquivalency);
+			wxLogMessage(_T("Actisense Node, Model ID: %s"), productInformation.modelId);
+			wxLogMessage(_T("Actisense Node, Model Version: %s"), productInformation.modelVersion);
+			wxLogMessage(_T("Actisense Node, Software Version: %s"), productInformation.softwareVersion);
+			wxLogMessage(_T("Actisense Node, Serial Number: %s"), productInformation.serialNumber);
+	#endif
+			
+			// Maintain the map of the NMEA 2000 network.
+			networkMap[header.source].productInformation = productInformation;
+			networkMap[header.source].timestamp = wxDateTime::Now();
+
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
+
+		case 127245: // Rudder
+			if (supportedPGN & FLAGS_RDR) {
+				result = DecodePGN127245(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 127250: // Heading
+			if (supportedPGN & FLAGS_HDG) {
+				result = DecodePGN127250(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 127251: // Rate of Turn
+			if (supportedPGN & FLAGS_ROT) {
+				result = DecodePGN127251(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 127257: // Attitude
+			if (supportedPGN & FLAGS_XDR) {
+				result = DecodePGN127257(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 127258: // Magnetic Variation
+			// BUG BUG needs flags 
+			// BUG BUG Not actually used anywhere
+			result = DecodePGN127258(payload, &nmeaSentences);
+			break;
+
+		case 127488: // Engine Parameters, Rapid Update
+			if (supportedPGN & FLAGS_ENG) {
+				result = DecodePGN127488(payload, &nmeaSentences);
+			}
+			break;
+
+		case 127489: // Engine Parameters, Dynamic
+			if (supportedPGN & FLAGS_ENG) {
+				result = DecodePGN127489(payload, &nmeaSentences);
+			}
+			break;
+
+		case 127505: // Fluid Levels
+			if (supportedPGN & FLAGS_TNK) {
+				result = DecodePGN127505(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 128259: // Boat Speed
+			if (supportedPGN & FLAGS_VHW) {
+				result = DecodePGN128259(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 128267: // Water Depth
+			if (supportedPGN & FLAGS_DPT) {
+				result = DecodePGN128267(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 129025: // Position - Rapid Update
+			if (supportedPGN & FLAGS_GLL) {
+				result = DecodePGN129025(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129026: // COG, SOG - Rapid Update
+			if (supportedPGN & FLAGS_VTG) {
+				result = DecodePGN129026(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129029: // GNSS Position
+			if (supportedPGN & FLAGS_GGA) {
+				result = DecodePGN129029(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129033: // Time & Date
+			if (supportedPGN & FLAGS_ZDA) {
+				result = DecodePGN129033(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 129038: // AIS Class A Position Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129038(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129039: // AIS Class B Position Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129039(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129040: // AIS Class B Extended Position Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129040(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129041: // AIS Aids To Navigation (AToN) Position Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129041(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129283: // Cross Track Error
+			if (supportedPGN & FLAGS_XTE) {
+				result = DecodePGN129283(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 129284: // Navigation Information
+			// BUG BUG not supported yet
+			result = FALSE;
+			break;
+			
+		case 129285: // Route & Waypoint Information
+			if (supportedPGN & FLAGS_RTE) {
+				result = DecodePGN129285(payload, &nmeaSentences);
+			}
+			break;
+
+		case 129793: // AIS Position and Date Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129793(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129794: // AIS Class A Static & Voyage Related Data
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129794(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129798: // AIS Search and Rescue (SAR) Position Report
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129798(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129808: // Digital Selective Calling (DSC)
+			if (supportedPGN & FLAGS_DSC) {
+				result = DecodePGN129808(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129809: // AIS Class B Static Data, Part A
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129809(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 129810: // Class B Static Data, Part B
+			if (supportedPGN & FLAGS_AIS) {
+				result = DecodePGN129810(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 130306: // Wind data
+			if (supportedPGN & FLAGS_MWV) {
+				result = DecodePGN130306(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 130310: // Environmental Parameters
+			if (supportedPGN & FLAGS_MWT) {
+				result = DecodePGN130310(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 130311: // Environmental Parameters (supercedes 130310)
+			if (supportedPGN & FLAGS_MWT) {
+				result = DecodePGN130311(payload, &nmeaSentences);
+			}
+			break;
+		
+		case 130312: // Temperature
+			if (supportedPGN & FLAGS_MWT) {
+				result = DecodePGN130312(payload, &nmeaSentences);
+			}
+			break;
+			
+		case 130316: // Temperature Extended Range
+			if (supportedPGN & FLAGS_MWT) {
+				result = DecodePGN130316(payload, &nmeaSentences);
+			}
+			break;
+				
+		default:
+			// BUG BUG Should we log an unsupported PGN error ??
+			// No NMEA 0183 sentences to pass onto OpenCPN
+			result = FALSE;
+			break;
+		}
+		// Send each NMEA 0183 Sentence to OpenCPN
+		if (result == TRUE) {
+			for (std::vector<wxString>::iterator it = nmeaSentences.begin(); it != nmeaSentences.end(); ++it) {
+				SendNMEASentence(*it);
+			}
 		}
 	}
 }

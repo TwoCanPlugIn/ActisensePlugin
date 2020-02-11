@@ -68,6 +68,9 @@
 #include <iostream>
 #include <vector>
 
+// global mutex used to control debug output (prevents interleaving of debug output)
+extern wxMutex *debugMutex;
+
 // abstract class for actisense interfaces (NGT-1 and EBL Log reader)
 class ActisenseInterface : public wxThread {
 

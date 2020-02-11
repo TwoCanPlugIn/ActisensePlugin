@@ -151,40 +151,7 @@ void ActisenseEBL::Read() {
 			
 				if (msgComplete) {
 					// we have a complete frame, process it
-					
-					// the checksum character at the end of the message
-					// ensures that the sum of all characters modulo 256 equals 0
-					int checksum = 0;
-					if (actisenseChecksum) {
-						for (auto it: assemblyBuffer) {
-							checksum += it;
-						}
-					}
-					else {
-						// Don't perform the checksum calculation, so just "dupe" it
-						checksum = 256;
-					}
-					
-					if ((checksum % 256) == 0) {
-						if (assemblyBuffer.at(0) == N2K_RX_CMD) {
-							
-							// debug hex dump of received message
-							int j = 0;
-							wxString debugString;
-							for (size_t i = 0; i < assemblyBuffer.size(); i++) {
-								debugString.Append(wxString::Format("%02X ",assemblyBuffer.at(i)));
-								j++;
-								if ((j % 8) == 0) {
-									wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
-									j = 0;
-									debugString.Clear();
-								}
-							}
-														
-							// we have a valid received frame so send it
-							deviceQueue->Post(assemblyBuffer);																					
-						}
-					}
+					deviceQueue->Post(assemblyBuffer);																					
 					
 					wxThread::Sleep(5);
 					

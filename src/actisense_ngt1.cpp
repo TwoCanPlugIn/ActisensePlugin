@@ -270,10 +270,11 @@ void ActisenseNGT1::Read() {
 			if (bytesRead > 0) {
 				
 				// BUG BUG debugging code just to find what is being sent by the NGT-1
+				debugMutex->Lock();
 				wxMessageOutputDebug().Printf(_T("Bytes read (%lu)\n"),bytesRead);
 				wxString rawData;
 				int k = 0;
-				for (int i = 0; i < (int)bytesRead; i++) {
+				for (int i = 0; i < static_cast<int>(bytesRead); i++) {
 					rawData.Append(wxString::Format("%02X ",readBuffer.at(i)));
 					k++;
 					if ((k % 8) == 0) {
@@ -282,6 +283,13 @@ void ActisenseNGT1::Read() {
 						rawData.Clear();
 					}
 				}
+				if (!rawData.IsEmpty()) {
+					wxMessageOutputDebug().Printf("%s\n",rawData.c_str());
+					rawData.Clear();
+				}
+				wxMessageOutputDebug().Printf("\n");
+				debugMutex->Unlock();
+				// end debug output
 
 				for (int i = 0; i < (int)bytesRead; i++) {
 
@@ -347,42 +355,12 @@ void ActisenseNGT1::Read() {
 
 					if (msgComplete) {
 						// we have a complete frame, process it
-
-						// the checksum character at the end of the message
-						// ensures that the sum of all characters modulo 256 equals 0
-						int checksum = 0;
-						if (actisenseChecksum) {
-							for (auto it : assemblyBuffer) {
-								checksum += it;
-							}
-						}
-						else {
-							// Don't perform the checksum calculation, so just "dupe" it
-							checksum = 256;
-						}
-
-						if ((checksum % 256) == 0) {
-							if (assemblyBuffer.at(0) == N2K_RX_CMD) {
-								
-								// debug hex dump of received message
-								int j = 0;
-								wxString debugString;
-								for (size_t i = 0; i < assemblyBuffer.size(); i++) {
-									debugString.Append(wxString::Format("%02X ",assemblyBuffer.at(i)));
-									j++;
-									if ((j % 8) == 0) {
-										wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
-										j = 0;
-										debugString.Clear();
-									}
-								}
-								
-								// we have received a valid frame so send it
-								deviceQueue->Post(assemblyBuffer);
-								
-							}
-						}
-
+						// No idea why Hubert's adapter sends messages both with & without checksums !!
+						// Post the message for processing. Perform checksum validation later so that the 
+						// decoding functions can branch as appropriate
+						
+						deviceQueue->Post(assemblyBuffer);
+						
 						// Reset everything for next message
 						assemblyBuffer.clear();
 						msgStart = false;
