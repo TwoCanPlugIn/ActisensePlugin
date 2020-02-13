@@ -2465,65 +2465,63 @@ bool ActisenseDevice::DecodePGN129283(std::vector<byte> payload, std::vector<wxS
 // Not sure of this use case, as it implies there is already a chartplotter on board
 bool ActisenseDevice::DecodePGN129284(std::vector<byte> payload, std::vector<wxString> *nmeaSentences) {
 	if (payload.size() > 0) {
-
 		byte sid;
 		sid = payload[0];
-
-		unsigned short distance;
-		distance = payload[1] | (payload[2] << 8);
-
+		
+		int distance;
+		distance = payload[1] | (payload[2] << 8) | (payload[3] << 16) | (payload[4] << 24);
+		
 		byte bearingRef; // Magnetic or True
-		bearingRef = payload[3] & 0xC0;
-
+		bearingRef = (payload[5] & 0xC0) >> 6;
+		
 		byte perpendicularCrossed; // Yes or No
-		perpendicularCrossed = payload[3] & 0x30;
-
+		perpendicularCrossed = (payload[5] & 0x30) >> 4;
+		
 		byte circleEntered; // Yes or No
-		circleEntered = payload[3] & 0x0C;
+		circleEntered = (payload[5] & 0x0C) >> 2;
 
 		byte calculationType; //Great Circle or Rhumb Line
-		calculationType = payload[3] & 0x3C;
-
-		unsigned int secondsSinceMidnight;
-		secondsSinceMidnight = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24);
+		calculationType = payload[5] & 0x03;
+		
+		int secondsSinceMidnight;
+		secondsSinceMidnight = payload[6] | (payload[7] << 8) | (payload[8] << 16) | (payload[9] << 24);
 
 		unsigned short daysSinceEpoch;
-		daysSinceEpoch = payload[8] | (payload[9] << 8);
+		daysSinceEpoch = payload[10] | (payload[11] << 8);
+		
+		short bearingOrigin;
+		bearingOrigin = payload[12] | (payload[13] << 8);
+		
+		short bearingPosition;
+		bearingPosition = payload[14] | (payload[15] << 8);
+		
+		int originWaypointId;
+		originWaypointId = payload[16] | (payload[17] << 8) | (payload[18] << 16) | (payload[19] << 24);
+		
+		int destinationWaypointId;
+		destinationWaypointId = payload[20] | (payload[21] << 8) | (payload[22] << 16) | (payload[23] << 24);
+		
+		double latitude;
+		latitude = ((payload[24] | (payload[25] << 8) | (payload[26] << 16) | (payload[27] << 24))) * 1e-7;
+		
+		int latitudeDegrees = trunc(latitude);
+		double latitudeMinutes = fabs(latitude - latitudeDegrees);
+		
+		double longitude;
+		longitude = ((payload[28] | (payload[29] << 8) | (payload[30] << 16) | (payload[31] << 24))) * 1e-7;
+		
+		int longitudeDegrees = trunc(longitude);
+		double longitudeMinutes = fabs(longitude - longitudeDegrees);
+		
+		short waypointClosingVelocity;
+		waypointClosingVelocity = payload[32] | (payload[33] << 8);
 
 		wxDateTime tm;
 		tm.ParseDateTime("00:00:00 01-01-1970");
 		tm += wxDateSpan::Days(daysSinceEpoch);
 		tm += wxTimeSpan::Seconds((wxLongLong)secondsSinceMidnight / 10000);
 
-		unsigned short bearingOrigin;
-		bearingOrigin = (payload[10] | (payload[11] << 8)) * 0.001;
-
-		unsigned short bearingPosition;
-		bearingPosition = (payload[12] | (payload[13] << 8)) * 0.001;
-
-		int originWaypointId;
-		originWaypointId = payload[14] | (payload[15] << 8) | (payload[16] << 16) | (payload[17] << 24);
-
-		int destinationWaypointId;
-		destinationWaypointId = payload[18] | (payload[19] << 8) | (payload[20] << 16) | (payload[21] << 24);
-
-		double latitude;
-		latitude = ((payload[22] | (payload[23] << 8) | (payload[24] << 16) | (payload[25] << 24))) * 1e-7;
-
-		int latitudeDegrees = (int)latitude;
-		double latitudeMinutes = (latitude - latitudeDegrees) * 60;
-
-		double longitude;
-		longitude = ((payload[26] | (payload[27] << 8) | (payload[28] << 16) | (payload[29] << 24))) * 1e-7;
-
-		int longitudeDegrees = (int)longitude;
-		double longitudeMinutes = (longitude - longitudeDegrees) * 60;
-
-		int waypointClosingVelocity;
-		waypointClosingVelocity = (payload[30] | (payload[31] << 8)) * 0.01;
-
-		wxDateTime timeNow;
-		timeNow = wxDateTime::Now();
+		wxDateTime timeNow = wxDateTime::Now();
 
 		if (calculationType == GREAT_CIRCLE) { 
 			if (bearingRef == HEADING_TRUE) {
@@ -2531,49 +2529,49 @@ bool ActisenseDevice::DecodePGN129284(std::vector<byte> payload, std::vector<wxS
 					timeNow.Format("%H%M%S.00"), 
 					abs(latitudeDegrees), fabs(latitudeMinutes), latitude >= 0 ? 'N' : 'S', 
 					abs(longitudeDegrees), fabs(longitudeMinutes), longitude >= 0 ? 'E' : 'W', 
-					RADIANS_TO_DEGREES((float)bearingPosition / 10000), 
-					CONVERT_METRES_NAUTICAL_MILES * distance, destinationWaypointId));
+					RADIANS_TO_DEGREES((float)bearingPosition / 10000.0f), 
+					CONVERT_METRES_NAUTICAL_MILES * distance * 0.01f, destinationWaypointId));
 			}
-			else {
+			else if (bearingRef == HEADING_MAGNETIC) {
 				nmeaSentences->push_back(wxString::Format("$IIBWC,%s,%02d%05.2f,%c,%03d%05.2f,%c,,T,%.2f,M,%.2f,N,%d,A", 
 					timeNow.Format("%H%M%S.00"), 
 					abs(latitudeDegrees), fabs(latitudeMinutes), latitude >= 0 ? 'N' : 'S', 
 					abs(longitudeDegrees), fabs(longitudeMinutes), longitude >= 0 ? 'E' : 'W', 
-					RADIANS_TO_DEGREES((float)bearingPosition / 10000), \
-					CONVERT_METRES_NAUTICAL_MILES * distance, destinationWaypointId));
+					RADIANS_TO_DEGREES((float)bearingPosition / 10000.0f), \
+					CONVERT_METRES_NAUTICAL_MILES * distance * 0.01f, destinationWaypointId));
 			}
-
+		
 		}
-		else { 
+		else if (calculationType == RHUMB_LINE) { 
 			if (bearingRef == HEADING_TRUE) {
 				nmeaSentences->push_back(wxString::Format("$IIBWR,%s,%02d%05.2f,%c,%03d%05.2f,%c,%.2f,T,,M,%.2f,N,%d,A", 
 					timeNow.Format("%H%M%S.00"),
 					abs(latitudeDegrees), fabs(latitudeMinutes), latitude >= 0 ? 'N' : 'S',
 					abs(longitudeDegrees), fabs(longitudeMinutes), longitude >= 0 ? 'E' : 'W',
-					RADIANS_TO_DEGREES((float)bearingPosition / 10000), \
-					CONVERT_METRES_NAUTICAL_MILES * distance, destinationWaypointId));
+					RADIANS_TO_DEGREES((float)bearingPosition / 10000.0f), \
+					CONVERT_METRES_NAUTICAL_MILES * distance * 0.01f, destinationWaypointId));
 			}
-			else {
+			else if (bearingRef == HEADING_MAGNETIC) {
 				nmeaSentences->push_back(wxString::Format("$IIBWR,%s,%02d%05.2f,%c,%03d%05.2f,%c,,T,%.2f,M,%.2f,N,%d,A", 
 					timeNow.Format("%H%M%S.00"),
 					abs(latitudeDegrees), fabs(latitudeMinutes), latitude >= 0 ? 'N' : 'S',
 					abs(longitudeDegrees), fabs(longitudeMinutes), longitude >= 0 ? 'E' : 'W',
-					RADIANS_TO_DEGREES((float)bearingPosition / 10000), \
-					CONVERT_METRES_NAUTICAL_MILES * distance, destinationWaypointId));
+					RADIANS_TO_DEGREES((float)bearingPosition / 10000.0f), \
+					CONVERT_METRES_NAUTICAL_MILES * distance * 0.01f, destinationWaypointId));
 			}
 		}
 
 	
 		if (bearingRef == HEADING_TRUE) {
 			nmeaSentences->push_back(wxString::Format("$IIBOD,%.2f,T,,M,%d,%d", 
-				RADIANS_TO_DEGREES((float)bearingOrigin),destinationWaypointId, originWaypointId));
+				RADIANS_TO_DEGREES((float)bearingOrigin / 10000.0f),destinationWaypointId, originWaypointId));
 		}
-		else {
+		else if (bearingRef == HEADING_MAGNETIC) {
 			nmeaSentences->push_back(wxString::Format("$IIBOD,,T,%.2f,M,%d,%d", 
-				RADIANS_TO_DEGREES((float)bearingOrigin),  destinationWaypointId, originWaypointId));
+				RADIANS_TO_DEGREES((float)bearingOrigin / 10000.0f),  destinationWaypointId, originWaypointId));
 		}
 
-		nmeaSentences->push_back(wxString::Format("$IIWCV,%.2f,N,%d,A",CONVERT_MS_KNOTS * waypointClosingVelocity, destinationWaypointId));
+		nmeaSentences->push_back(wxString::Format("$IIWCV,%.2f,N,%d,A",CONVERT_MS_KNOTS * waypointClosingVelocity * 0.01f, destinationWaypointId));
 
 		return TRUE;
 	}
@@ -2583,12 +2581,23 @@ bool ActisenseDevice::DecodePGN129284(std::vector<byte> payload, std::vector<wxS
 }
 
 // Decode PGN 129285 Route and Waypoint Information
-// $--RTE,x.x,x.x,a,c--c,c--c, ..……... c--c*hh<CR><LF>
+// $--RTE,x.x,x.x,a,c--c,c--c, ... c--c*hh<CR><LF>
+//         |   |  |  |    |         |
+//         |   |  |  |    |        Waypoint ID n
+//         |   |  |  |    Waypoint ID 2
+//         |   |  |  Waypoint ID 1
+//         |   |  c - complete, w - previous waypoint, next waypoint, and the remainder
+//         |  Message Number
+//       Total number of messages being transmitted
+
 // and 
 // $--WPL,llll.ll,a,yyyyy.yy,a,c--c
 bool ActisenseDevice::DecodePGN129285(std::vector<byte> payload, std::vector<wxString> *nmeaSentences) {
 	if (payload.size() > 0) {
-
+		// BUG BUG, Should calculate how many sentences to send based on the number of waypoints
+		// rather than just assuming a single sentence.
+		wxString routeSentence = "$IIRTE,1,1,c";
+		
 		unsigned short rps;
 		rps = payload[0] | (payload[1] << 8);
 
@@ -2601,51 +2610,75 @@ bool ActisenseDevice::DecodePGN129285(std::vector<byte> payload, std::vector<wxS
 		unsigned short routeID;
 		routeID = payload[6] | (payload[7] << 8);
 
-		unsigned char direction; // I presume forward/reverse
-		direction = payload[8] & 0xC0; 
+		// I presume forward/reverse
+		byte direction; 
+		direction = (payload[8] & 0xE0) >> 5;
 
-		unsigned char supplementaryInfo;
-		supplementaryInfo = payload[8] & 0x30;
+		byte supplementaryInfo;
+		supplementaryInfo = (payload[8] & 0x18) >> 3;
 
 		// NMEA reserved
-		// unsigned short reservedA = payload[8} & 0x0F;
+		byte reservedA = payload[8] & 0x07;
+
+		// As we need to iterate repeated fields with variable length strings
+		// can't use hardcoded indexes into the payload
+		int index = 11;
 
 		std::string routeName;
-		// BUG BUG If this is null terminated, just use strcpy
-		for (int i = 0; i < 255; i++) {
-			if (isprint(payload[9 + i])) {
-				routeName.append(1, payload[9 + i]);
+		int routeNameLength = payload[9];
+		if (payload[10] == 1) {
+			// first byte of Route name indicates encoding; 0 for Unicode, 1 for ASCII
+			for (int i = 0; i < routeNameLength - 2; i++) {
+				routeName += (static_cast<char>(payload[index + i]));
+				index++;
 			}
 		}
 
-		// NMEA reserved payload[264]
-		//unsigned int reservedB = payload[264];
+		// NMEA reserved 
+		byte reservedB = payload[index];
+		index++;
 
 		// repeated fields
 		for (unsigned int i = 0; i < nItems; i++) {
-			int waypointID;
-			waypointID = payload[265 + (i * 265)] | (payload[265 + (i * 265) + 1] << 8);
+			unsigned short waypointID;
+			waypointID = payload[index] | (payload[index + 1] << 8);
+
+			routeSentence.append(wxString::Format(",%d", waypointID));
+
+			index += 2;
 
 			std::string waypointName;
-			for (int j = 0; j < 255; j++) {
-				if (isprint(payload[265 + (i * 265) + 266 + j])) {
-					waypointName.append(1, payload[265 + (i * 265) + 266 + j]);
+			int waypointNameLength = payload[index];
+			index++;
+			if (payload[index] == 1) {
+				// first byte of Waypoint Name indicates encoding; 0 for Unicode, 1 for ASCII
+				index++;
+				for (int i = 0; i < waypointNameLength - 2; i++) {
+					routeName += (static_cast<char>(payload[index]));
+					index++;
 				}
 			}
-		
-			double latitude = payload[265 + (i * 265) + 257] | (payload[265 + (i * 265) + 258] << 8) | (payload[265 + (i * 265) + 259] << 16) | (payload[265 + (i * 265) + 260] << 24);
-			int latitudeDegrees = (int)latitude;
-			double latitudeMinutes = (latitude - latitudeDegrees) * 60;
 
-			double longitude = payload[265 + (i * 265) + 261] | (payload[265 + (i * 265) + 262] << 8) | (payload[265 + (i * 265) + 263] << 16) | (payload[265 + (i * 265) + 264] << 24);
-			int longitudeDegrees = (int)longitude;
-			double longitudeMinutes = (longitude - longitudeDegrees) * 60;
+					
+			double latitude = (payload[index] | (payload[index + 1] << 8) | (payload[index + 2] << 16) | (payload[index + 3] << 24)) * 1e-7;
+			int latitudeDegrees = trunc(latitude);
+			double latitudeMinutes = fabs(latitude - latitudeDegrees);
 
-			nmeaSentences->push_back(wxString::Format("$IIWPL,%02d%05.2f,%c,%03d%05.2f,%c,%s",
+			double longitude = (payload[index + 4] | (payload[index + 5] << 8) | (payload[index + 6] << 16) | (payload[index + 7] << 24)) * 1e-7;
+			int longitudeDegrees = trunc(longitude);
+			double longitudeMinutes = fabs(longitude - longitudeDegrees);
+
+			index += 8;
+
+			// BUG BUG Do we use WaypointID or Waypoint Name ??
+			nmeaSentences->push_back(wxString::Format("$IIWPL,%02d%05.2f,%c,%03d%05.2f,%c,%d",
 				abs(latitudeDegrees), fabs(latitudeMinutes), latitude >= 0 ? 'N' : 'S',
 				abs(longitudeDegrees), fabs(longitudeMinutes), longitude >= 0 ? 'E' : 'W',
-				waypointName.c_str()));
+				waypointID));
 		}
+
+		nmeaSentences->push_back(routeSentence);
+
 		return TRUE;
 	}
 	else {

@@ -785,7 +785,7 @@ int ActisenseNGT1::GetDevicePort(WCHAR *rootKey, WCHAR *friendlyName, wxString p
 		}
 
 		// BUG BUG DEBUG
-		wxMessageOutputDebug().Printf(_T("Registry Sub Key: %s (%d)\n", subKeyName, subKeyLength);
+		wxMessageOutputDebug().Printf(_T("Registry Sub Key: %s (%d)\n", subKeyName, subKeyLength));
 
 		// Note Service matches the SubKey 'FTSER2K' for detecting if device is present
 		
