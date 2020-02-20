@@ -108,8 +108,7 @@ ActisenseSettingsBase::ActisenseSettingsBase( wxWindow* parent, wxWindowID id, c
 	sizerPanelNetwork->Fit( panelNetwork );
 	notebookTabs->AddPage( panelNetwork, wxT("Network"), false );
 	panelDevice = new wxPanel( notebookTabs, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
-	panelDevice->Hide();
-
+	
 	wxBoxSizer* sizerPanelDevice;
 	sizerPanelDevice = new wxBoxSizer( wxVERTICAL );
 
@@ -171,8 +170,7 @@ ActisenseSettingsBase::ActisenseSettingsBase( wxWindow* parent, wxWindowID id, c
 	sizerPanelDevice->Fit( panelDevice );
 	notebookTabs->AddPage( panelDevice, wxT("Device"), false );
 	panelLogging = new wxPanel( notebookTabs, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
-	panelLogging->Hide();
-
+	
 	wxBoxSizer* sizerPanelLogging;
 	sizerPanelLogging = new wxBoxSizer( wxVERTICAL );
 

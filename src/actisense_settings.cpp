@@ -78,7 +78,7 @@ void ActisenseSettings::OnInit(wxInitDialogEvent& event) {
 	pgn->Add(_T("130310 ") + _("Water Temperature") + _(" (MWT)"));
 	pgn->Add(_T("129808 ") + _("Digital Selective Calling") + _T(" (DSC)"));
 	pgn->Add(_T("129038..41 ") + _("AIS Class A & B messages") + _T(" (VDM)"));
-	pgn->Add(_T("129285 ") + _("Route/Waypoint") + _T(" (BWR/BOD/WPL/RTE)"));
+	pgn->Add(_T("129285 ") + _("Route/Waypoint") + _T(" (WPL/RTE)"));
 	pgn->Add(_T("127251 ") + _("Rate of Turn") + _T(" (ROT)"));
 	pgn->Add(_T("129283 ") + _("Cross Track Error") + _T(" (XTE)"));
 	pgn->Add(_T("127257 ") + _("Attitude") + _T(" (XDR)"));
@@ -86,7 +86,8 @@ void ActisenseSettings::OnInit(wxInitDialogEvent& event) {
 	pgn->Add(_T("127505 ") + _("Fluid Levels") + _T(" (XDR) "));
 	pgn->Add(_T("127245 ") + _("Rudder Angle") + _T(" (RSA)"));
 	pgn->Add(_T("127508 ") + _("Battery Status") + _T(" (XDR)"));
-		
+	pgn->Add(_T("129284 ") + _("Navigation Data") + _T(" (BWC/BWR/BOD/WCV)"));
+			
 	// Populate the listbox and check/uncheck as appropriate
 	for (size_t i = 0; i < pgn->Count(); i++) {
 		chkListPGN->Append(pgn->Item(i));
@@ -118,7 +119,7 @@ void ActisenseSettings::OnInit(wxInitDialogEvent& event) {
 	// BUG BUG Localization
 	btnPause->SetLabel((debugWindowActive) ? _("Stop") : _("Start"));
 
-	// Network Tab
+	// Network Tab - Currently hidden
 	wxSize gridSize;
 	gridSize = this->GetClientSize();
 	gridSize.SetHeight(gridSize.GetHeight() * 0.75f);
@@ -192,7 +193,14 @@ void ActisenseSettings::OnInit(wxInitDialogEvent& event) {
 	chkInfluxDB->SetValue(enableInfluxDB);
 	
 	// Ensure the dialog is sized correctly	
+	// And hide the pages that are not yet tested/implemented
+	// Interesting.... once a page is removed, the indexes kind of shuffle down.
+	notebookTabs->RemovePage(1);
+	notebookTabs->RemovePage(1);
+	notebookTabs->RemovePage(1);
+	
 	Fit();
+	
 }
 
 // BUG BUG Should prevent the user from shooting themselves in the foot if they select a driver that is not present
@@ -320,6 +328,8 @@ void ActisenseSettings::SaveSettings(void) {
 		supportedPGN |= 1 << (int)*it;
 	}
 	
+	// BUG BUG Perhaps more elegant ?
+	// enableHeartbeat = chkEnableHeartbeat->IsChecked();
 	enableHeartbeat = FALSE;
 	if (chkEnableHeartbeat->IsChecked()) {
 		enableHeartbeat = TRUE;

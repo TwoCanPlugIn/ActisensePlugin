@@ -55,7 +55,8 @@ ActisenseDevice::ActisenseDevice(wxEvtHandler *handler) : wxThread(wxTHREAD_JOIN
 	IsMultiEngineVessel = FALSE;
 		
 	// BUG BUG - Need to finalize use case and reflect in the preferences dialog
-	// BUG BUG - Perform logging in the NGT-1 driver
+	// BUG BUG - Logging not currently exposed in the Preferences dialog
+	// BUG BUG - Perform logging in the NGT-1 driver ??
 	if (logLevel > FLAGS_LOG_NONE) {
 		wxDateTime tm = wxDateTime::Now();
 		// construct a filename with the following format twocan-2018-12-31_210735.log
@@ -88,12 +89,17 @@ int ActisenseDevice::Init(wxString driverPath) {
 		deviceInterface = new ActisenseEBL(canQueue);
 		returnCode = deviceInterface->Open(CONST_LOGFILE_NAME);
 	}
-	if (driverName.CmpNoCase(CONST_NGT_READER) == 0) {
+	else if (driverName.CmpNoCase(CONST_NGT_READER) == 0) {
 		// Load the  Actisense NGT-1 interface
 		deviceInterface = new ActisenseNGT1(canQueue);
 		// By default, adapterPortName is empty, therefore the NGT-1 interface
 		// will automagically determine the correct port. If not empty, it overrides the automatic port selection
 		returnCode = deviceInterface->Open(adapterPortName);
+	}
+
+	else {
+		// BUG BUG Should not reach this condition
+		returnCode = SET_ERROR(TWOCAN_RESULT_FATAL, TWOCAN_SOURCE_DEVICE, TWOCAN_ERROR_DRIVER_NOT_FOUND);
 	}
 	
 	return returnCode;
@@ -267,22 +273,22 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 		int j = 0;
 		wxString debugString;
 		debugMutex->Lock();
-		wxMessageOutputDebug().Printf("Received Frame\n");
+		wxMessageOutputDebug().Printf(_T("Received Frame\n"));
 		for (size_t i = 0; i < receivedFrame.size(); i++) {
 			debugString.Append(wxString::Format("%02X ",receivedFrame.at(i)));
 			j++;
 			if ((j % 8) == 0) {
-				wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+				wxMessageOutputDebug().Printf(_T("%s\n"),debugString.c_str());
 				j = 0;
 				debugString.Clear();
 			}
 		}
 		
 		if (!debugString.IsEmpty()) {	
-			wxMessageOutputDebug().Printf("%s\n",debugString.c_str());
+			wxMessageOutputDebug().Printf(_T("%s\n"),debugString.c_str());
 			debugString.Clear();
 		}
-		wxMessageOutputDebug().Printf("\n");
+		wxMessageOutputDebug().Printf(_T("\n"));
 		// unlock once we have prnted out the header debugMutex->Unlock();
 		// end of debugging
 	
@@ -648,8 +654,9 @@ void ActisenseDevice::ParseMessage(std::vector<byte> receivedFrame) {
 			break;
 			
 		case 129284: // Navigation Information
-			// BUG BUG not supported yet
-			result = FALSE;
+			if (supportedPGN & FLAGS_NAV) {
+				result = DecodePGN129284(payload, &nmeaSentences);
+			}
 			break;
 			
 		case 129285: // Route & Waypoint Information
@@ -1137,7 +1144,7 @@ bool ActisenseDevice::DecodePGN127257(std::vector<byte> payload, std::vector<wxS
 		pitch = payload[3] | (payload[4] << 8);
 
 		short roll;
-		roll = payload[5] | (payload[4] << 8);
+		roll = payload[5] | (payload[6] << 8);
 
 		wxString xdrString;
 
@@ -1183,7 +1190,7 @@ bool ActisenseDevice::DecodePGN127258(std::vector<byte> payload, std::vector<wxS
 		daysSinceEpoch = payload[2] | (payload[3] << 8);
 
 		short variation;
-		variation = payload[5] | (payload[6] << 8);
+		variation = payload[4] | (payload[5] << 8);
 
 		// to calculate variation: RADIANS_TO_DEGREES((float)variation / 10000);
 
@@ -1243,35 +1250,34 @@ bool ActisenseDevice::DecodePGN127488(std::vector<byte> payload, std::vector<wxS
 				// nmeaSentences->push_back(wxString::Format("$IIRPM,E,0,%.2f,,A", engineSpeed * 0.25f));
 				break;
 				
-				/*
-				 *
-				 {
-  "context": "vessels.urn:mrn:imo:mmsi:234567890",
-  "updates": [
-    {
-      "source": {
-        "label": "N2000-01",
-        "type": "NMEA2000",
-        "src": "017",
-        "pgn": 127488
-      },
-      "timestamp": "2010-01-07T07:18:44Z",
-      "values": [
-        {
-          "path": "propulsion.0.revolutions",
-          "value": 16.341667
-        },
-        {
-          "path": "propulsion.0.boostPressure",
-          "value": 45500
-        }
-      ]
-    }
-  ]
-} 
-*/
+				// FYI Signal K Data Format
+				//
+				// {
+				// "context": "vessels.urn:mrn:imo:mmsi:234567890",
+				// "updates": [
+				//{
+				// "source": {
+				// "label": "N2000-01",
+				// "type": "NMEA2000",
+				// "src": "017",
+				// "pgn": 127488
+				// },
+				// "timestamp": "2010-01-07T07:18:44Z",
+				// "values": [
+				// {
+				// "path": "propulsion.0.revolutions",
+				// "value": 16.341667
+				//},
+				// {
+				// "path": "propulsion.0.boostPressure",
+				// "value": 45500
+				// }
+				// ]
+				// }
+				// ]
+				// } 
+				//
 
-				
 			}
 			return TRUE;
 		}
@@ -1417,7 +1423,7 @@ bool ActisenseDevice::DecodePGN127505(std::vector<byte> payload, std::vector<wxS
 
 		if ((TwoCanUtils::IsDataValid(tankLevel)) && (TwoCanUtils::IsDataValid(tankCapacity))) {
 			switch (tankType) {
-				// BUG BUG Using Type = V (Volume) but units = P to indicate percentage rather than M (Cubic Meters)
+				// Using Type = V (Volume) but units = P to indicate percentage rather than M (Cubic Meters)
 			case 0:
 				nmeaSentences->push_back(wxString::Format("$IIXDR,V,%.2f,P,FUEL", (float)tankLevel * 0.025f));
 				break;
@@ -1900,13 +1906,13 @@ bool ActisenseDevice::DecodePGN129038(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 
 		int positionAccuracy;
@@ -2025,13 +2031,13 @@ bool ActisenseDevice::DecodePGN129039(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 						
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 		
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 		
 		int positionAccuracy;
@@ -2139,13 +2145,13 @@ bool ActisenseDevice::DecodePGN129040(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 
 		int positionAccuracy;
@@ -2198,7 +2204,7 @@ bool ActisenseDevice::DecodePGN129040(std::vector<byte> payload, std::vector<wxS
 		
 		std::string shipName;
 		for (int i = 0; i < 20; i++) {
-			shipName.append(1,(char)payload[32 + i]);
+			shipName += static_cast<char>(payload[32 + i]);
 		}
 		
 		int dteFlag;
@@ -2287,13 +2293,13 @@ bool ActisenseDevice::DecodePGN129041(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 
 		int positionAccuracy;
@@ -2352,7 +2358,7 @@ bool ActisenseDevice::DecodePGN129041(std::vector<byte> payload, std::vector<wxS
 		int AToNNameLength = payload[26];
 		if (payload[27] == 1) { // First byte indicates encoding, 0 for Unicode, 1 for ASCII
 			for (int i = 0; i < AToNNameLength - 1; i++) {
-				AToNName.append(1, payload[28 + i]);
+				AToNName += static_cast<char>(payload[28 + i]);
 			}
 		} 
 								
@@ -2629,7 +2635,7 @@ bool ActisenseDevice::DecodePGN129285(std::vector<byte> payload, std::vector<wxS
 		if (payload[10] == 1) {
 			// first byte of Route name indicates encoding; 0 for Unicode, 1 for ASCII
 			for (int i = 0; i < routeNameLength - 2; i++) {
-				routeName += (static_cast<char>(payload[index + i]));
+				routeName += static_cast<char>(payload[index + i]);
 				index++;
 			}
 		}
@@ -2654,7 +2660,7 @@ bool ActisenseDevice::DecodePGN129285(std::vector<byte> payload, std::vector<wxS
 				// first byte of Waypoint Name indicates encoding; 0 for Unicode, 1 for ASCII
 				index++;
 				for (int i = 0; i < waypointNameLength - 2; i++) {
-					routeName += (static_cast<char>(payload[index]));
+					waypointName += (static_cast<char>(payload[index]));
 					index++;
 				}
 			}
@@ -2707,13 +2713,13 @@ bool ActisenseDevice::DecodePGN129793(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 		
 		int positionAccuracy;
@@ -2776,6 +2782,9 @@ bool ActisenseDevice::DecodePGN129793(std::vector<byte> payload, std::vector<wxS
 		// Send a single VDM sentence, note no fillbits nor a sequential message Id
 		nmeaSentences->push_back(wxString::Format("!AIVDM,1,1,,B,%s,0", AISEncodePayload(binaryData)));
 		
+		// BUG BUG DEBUG
+		wxMessageOutputDebug().Printf(_T("!AIVDM,1,1,,B,%s,0"), AISEncodePayload(binaryData));
+
 		return TRUE;
 	}
 	else {
@@ -2805,12 +2814,12 @@ bool ActisenseDevice::DecodePGN129794(std::vector<byte> payload, std::vector<wxS
 		
 		std::string callSign;
 		for (int i = 0; i < 7; i++) {
-			callSign.append(1, (char)payload[9 + i]);
+			callSign += static_cast<char>(payload[9 + i]);
 		}
 		
 		std::string shipName;
 		for (int i = 0; i < 20; i++) {
-			shipName.append(1, (char)payload[16 + i]);
+			shipName += static_cast<char>(payload[16 + i]);
 		}
 		
 		unsigned int shipType;
@@ -2844,7 +2853,7 @@ bool ActisenseDevice::DecodePGN129794(std::vector<byte> payload, std::vector<wxS
 
 		std::string destination;
 		for (int i = 0; i < 20; i++) {
-			destination.append(1, (char)payload[53 + i]);
+			destination += static_cast<char>(payload[53 + i]);
 		}
 				
 		int aisVersion;
@@ -2921,13 +2930,13 @@ bool ActisenseDevice::DecodePGN129798(std::vector<byte> payload, std::vector<wxS
 		double longitude;
 		longitude = ((payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = fabs((longitude - longitudeDegrees) * 60);
 
 		double latitude;
 		latitude = ((payload[9] | (payload[10] << 8) | (payload[11] << 16) | (payload[12] << 24))) * 1e-7;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = fabs((latitude - latitudeDegrees) * 60);
 
 		int positionAccuracy;
@@ -3047,18 +3056,13 @@ bool ActisenseDevice::DecodePGN129801(std::vector<byte> payload, std::vector<wxS
 		reservedC = (payload[10] & 0x80) >> 7;
 
 		std::string safetyMessage;
-		for (int i = 0; i < 156; i++) {
-			safetyMessage.append(1, (char)payload[11 + i]);
-		}
-		// BUG BUG Not sure if ths is encoded same as Addressed Safety Message
-		//std::string safetyMessage;
-		//int safetyMessageLength = payload[6];
-		//if (payload[7] == 1) {
+		int safetyMessageLength = payload[11];
+		if (payload[12] == 1) {
 			// first byte of safety message indicates encoding; 0 for Unicode, 1 for ASCII
-			//for (int i = 0; i < safetyMessageLength - 2; i++) {
-			//	safetyMessage += (static_cast<char>(payload[8 + i]));
-			//}
-		//}
+			for (int i = 0; i < safetyMessageLength - 2; i++) {
+				safetyMessage += (static_cast<char>(payload[13 + i]));
+			}
+		}
 
 		AISInsertInteger(binaryData, 0, 6, messageID);
 		AISInsertInteger(binaryData, 6, 2, repeatIndicator);
@@ -3237,13 +3241,13 @@ bool ActisenseDevice::DecodePGN129808(std::vector<byte> payload, std::vector<wxS
 
 		index += 4;
 
-		int latitudeDegrees = (int)latitude;
+		int latitudeDegrees = trunc(latitude);
 		double latitudeMinutes = (latitude - latitudeDegrees) * 60;
 
 		double longitude;
 		longitude = ((payload[index + 1] | (payload[index + 2] << 8) | (payload[index + 3] << 16) | (payload[index + 4] << 24))) * 1e-7;
 
-		int longitudeDegrees = (int)longitude;
+		int longitudeDegrees = trunc(longitude);
 		double longitudeMinutes = (longitude - longitudeDegrees) * 60;
 
 		unsigned int secondsSinceMidnight;
@@ -3339,7 +3343,7 @@ bool ActisenseDevice::DecodePGN129809(std::vector<byte> payload, std::vector<wxS
 
 		std::string shipName;
 		for (int i = 0; i < 20; i++) {
-			shipName.append(1, (char)payload[5 + i]);
+			shipName += static_cast<char>(payload[5 + i]);
 		}
 
 		// Encode VDM Message using 6 bit ASCII
@@ -3388,16 +3392,18 @@ bool ActisenseDevice::DecodePGN129810(std::vector<byte> payload, std::vector<wxS
 
 		std::string vendorId;
 		for (int i = 0; i < 7; i++) {
-			vendorId.append(1, (char)payload[6 + i]);
+			vendorId += static_cast<char>(payload[6 + i]);
 		}
 
 		std::string callSign;
 		for (int i = 0; i < 7; i++) {
-			callSign.append(1, (char)payload[13 + i]);
+			callSign += static_cast<char>(payload[13 + i]);
 		}
 		
 		unsigned int shipLength;
 		shipLength = payload[20] | (payload[21] << 8);
+
+
 
 		unsigned int shipBeam;
 		shipBeam = payload[22] | (payload[23] << 8);
