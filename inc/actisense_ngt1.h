@@ -35,6 +35,7 @@
 #include <unistd.h>
 #include <wx/dir.h>
 #include <wx/textfile.h>
+#include <wx/file.h>
 #include <wx/regex.h>
 #endif
 
@@ -64,6 +65,7 @@ private:
 	wxString portName;
 	int ConfigureAdapter(void);
 	int ConfigurePort(void);
+	wxFile logFile;
 	
 	// Serial port handle
 #ifdef __LINUX__

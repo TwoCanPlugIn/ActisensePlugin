@@ -77,6 +77,16 @@ int ActisenseNGT1::Open(const wxString& optionalPortName) {
 	
 	wxLogMessage(_T("Actisense NGT-1, Attempting to open %s"), portName);
 	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Attempting to open %s\n"), portName);
+	
+	// BUG Debug Open the raw log file
+	wxDateTime tm = wxDateTime::Now();
+	wxString fileName = wxStandardPaths::Get().GetDocumentsDir() + wxFileName::GetPathSeparator() + tm.Format("actisense-%Y-%m-%d_%H%M%S.ebl");
+	logFile.Open(fileName, wxFile::write);
+	if (logFile.IsOpened()) {
+		wxLogMessage(_T("Actisense NGT-1, Created Log File %s"), fileName);
+		wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Created Log File %s\n"), fileName);
+	}
+		
 			
 #ifdef __LINUX__
 	// Open the serial device
@@ -219,6 +229,12 @@ int ActisenseNGT1::Close(void) {
 	wxLogMessage(_T("Actisense NGT-1, Closed serial port"));
 	wxMessageOutputDebug().Printf(_T("Actisense NGT-1, Closed serial port\n"));
 	
+	// BUG BUG Debug close log file
+	if (logFile.IsOpened()) {
+		logFile.Close();
+	}
+	
+	
 	return TWOCAN_RESULT_SUCCESS;
 }
 
@@ -229,7 +245,7 @@ void ActisenseNGT1::Read() {
 	
 	// read 128 at a time ??
 	std::vector<byte> readBuffer(128,0);
-	
+		
 	// used to iterate through the readBuffer
 #ifdef __LINUX__
 	int bytesRead = 0;
@@ -253,10 +269,15 @@ void ActisenseNGT1::Read() {
 	// or a BEMEND (preceded by an ESC)
 	bool msgComplete = false;
 	
+	// BUG BUG Debug logFile write
+	size_t logFileBytesWritten;
+	
 	while (!TestDestroy()) {
 	
 #ifdef __LINUX__
 		bytesRead = read(serialPortHandle, (char *) &readBuffer[0], readBuffer.size());
+		
+		
 	#endif
 	
 #ifdef __WXMSW__
@@ -268,6 +289,11 @@ void ActisenseNGT1::Read() {
 #endif
 
 			if (bytesRead > 0) {
+				
+				// BUG BUG Log to file
+				if (logFile.IsOpened()) {
+					logFileBytesWritten = logFile.Write(readBuffer.data(), static_cast<size_t>(bytesRead));
+				}
 				
 				// BUG BUG debugging code just to find what is being sent by the NGT-1
 				debugMutex->Lock();
